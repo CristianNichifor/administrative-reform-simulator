@@ -56,12 +56,26 @@ are verified before any frontend work begins.
 
 - [x] Repo skeleton, license, CI
 - [x] Prior-art investigation ([`docs/PRIOR_ART.md`](docs/PRIOR_ART.md))
-- [ ] `fetch.py` + `build_geometry.py` + data-quality report on boundaries and the SIRUTA join
-- [ ] `build_adjacency.py` — adjacency with road-crossing flags **(verification gate)**
+- [x] `fetch.py` + `build_geometry.py` + data-quality report on boundaries and the SIRUTA join
+- [x] `build_seats.py` — one seat point per UAT, from the SIRUTA nomenclator
+- [x] `build_adjacency.py` — adjacency with road-crossing flags **(verification gate)**
 - [ ] `build_candidacy.py` — precomputed overlap fractions per radius **(verification gate)**
 - [ ] `reference_model.py` — Python implementation of the algorithm
 - [ ] TypeScript port + parity tests
 - [ ] Frontend
+
+## Determinism and how to check it
+
+Same inputs must give the same map. Two of the pipeline's artefact formats behave
+differently under that requirement, and the difference has already caused one false alarm:
+
+- **Parquet** (`adjacency.parquet`) is byte-reproducible. `md5sum` is a valid check.
+- **GeoPackage** (`uat_geometry.gpkg`, `uat_seats.gpkg`) is **not**. GPKG records a
+  `last_change` timestamp in its `gpkg_contents` table, so two runs producing identical
+  data still produce different bytes.
+
+Check a GeoPackage by hashing its *content* — attributes sorted by SIRUTA, plus geometry
+WKB — not the file. A changed `.gpkg` checksum on its own means nothing.
 
 ## Data sources
 
