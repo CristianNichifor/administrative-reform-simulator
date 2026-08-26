@@ -62,7 +62,8 @@ are verified before any frontend work begins.
 - [x] `build_candidacy.py` — precomputed overlap fractions per radius **(verification gate)**
 - [x] `build_finance.py` — operating vs development expenditure per UAT
 - [x] `reference_model.py` — Python implementation of the algorithm
-- [ ] TypeScript port + parity tests
+- [x] `export.py` — typed-array payload for the browser
+- [x] TypeScript port + parity tests
 - [ ] Frontend
 
 ## Determinism and how to check it
@@ -105,8 +106,9 @@ uv sync
 uv run ruff check pipeline tests
 uv run pytest
 
-# Web (not yet scaffolded)
-cd web && npm install && npm run dev
+# Web
+cd web && npm install
+npm run typecheck && npm run lint && npm test
 ```
 
 ## Licence

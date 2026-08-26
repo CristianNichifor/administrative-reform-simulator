@@ -1,0 +1,151 @@
+/**
+ * Decode the binary payload emitted by `pipeline/export.py` into typed arrays.
+ *
+ * There is no parsing step for the numeric data: each buffer is viewed directly as the
+ * typed array it already is. The only work done here is building the two compressed-row
+ * indexes (neighbours, and candidacy per radius) that turn the model's inner loops into
+ * bounds lookups instead of scans.
+ */
+
+import type { Attributes, Manifest, ModelData, RadiusSlice } from './types';
+
+const U16 = Uint16Array.BYTES_PER_ELEMENT;
+const U32 = Uint32Array.BYTES_PER_ELEMENT;
+const F32 = Float32Array.BYTES_PER_ELEMENT;
+
+export interface RawPayload {
+  manifest: Manifest;
+  attributes: Attributes;
+  attributesBin: ArrayBuffer;
+  adjacencyBin: ArrayBuffer;
+  candidacyBin: ArrayBuffer;
+}
+
+/**
+ * Build the compressed-row offsets for a list of (row, value) pairs already sorted by row.
+ *
+ * Returns an array of length `rows + 1`, where slice `[start[i], start[i + 1])` holds
+ * row `i`. Rows with no entries produce an empty slice rather than a gap.
+ */
+function rowOffsets(rowIndex: Uint16Array, rows: number): Uint32Array {
+  const start = new Uint32Array(rows + 1);
+  for (let i = 0; i < rowIndex.length; i += 1) {
+    const row = rowIndex[i]! + 1;
+    start[row] = start[row]! + 1;
+  }
+  for (let r = 0; r < rows; r += 1) {
+    start[r + 1] = start[r + 1]! + start[r]!;
+  }
+  return start;
+}
+
+export function decode(raw: RawPayload): ModelData {
+  const { manifest, attributes } = raw;
+  const n = manifest.uatCount;
+
+  // attributes.bin: population u32 | seatX f32 | seatY f32 | admin f32 | operating f32
+  let offset = 0;
+  const population = new Uint32Array(raw.attributesBin, offset, n);
+  offset += n * U32;
+  const seatX = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const seatY = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const administrativeRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const operatingRon = new Float32Array(raw.attributesBin, offset, n);
+
+  // Intern county codes so the "same county" test in the inner loop is an integer
+  // comparison rather than a string comparison.
+  const countyCodes: string[] = [];
+  const countyIndex = new Map<string, number>();
+  const countyOf = new Uint8Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const code = attributes.county[i]!;
+    let idx = countyIndex.get(code);
+    if (idx === undefined) {
+      idx = countyCodes.length;
+      countyCodes.push(code);
+      countyIndex.set(code, idx);
+    }
+    countyOf[i] = idx;
+  }
+
+  // adjacency.bin: a u16[] | b u16[]. Stored once per edge, expanded to both directions.
+  const edges = manifest.edgeCount;
+  const edgeA = new Uint16Array(raw.adjacencyBin, 0, edges);
+  const edgeB = new Uint16Array(raw.adjacencyBin, edges * U16, edges);
+
+  const degree = new Uint32Array(n);
+  for (let e = 0; e < edges; e += 1) {
+    const a = edgeA[e]!;
+    const b = edgeB[e]!;
+    degree[a] = degree[a]! + 1;
+    degree[b] = degree[b]! + 1;
+  }
+  const neighbourStart = new Uint32Array(n + 1);
+  for (let i = 0; i < n; i += 1) {
+    neighbourStart[i + 1] = neighbourStart[i]! + degree[i]!;
+  }
+  const cursor = neighbourStart.slice(0, n);
+  const neighbours = new Uint16Array(edges * 2);
+  for (let e = 0; e < edges; e += 1) {
+    const a = edgeA[e]!;
+    const b = edgeB[e]!;
+    neighbours[cursor[a]!] = b;
+    cursor[a] = cursor[a]! + 1;
+    neighbours[cursor[b]!] = a;
+    cursor[b] = cursor[b]! + 1;
+  }
+  // The Python reference iterates neighbours in SIRUTA order, which is index order here.
+  // Sorting each row makes the two traversals identical rather than merely equivalent.
+  for (let i = 0; i < n; i += 1) {
+    const from = neighbourStart[i]!;
+    const to = neighbourStart[i + 1]!;
+    const row = neighbours.subarray(from, to);
+    row.sort();
+  }
+
+  // candidacy.bin: per radius, absorber u16[] | target u16[] | overlap u8[] | seat u8[]
+  const byRadius = new Map<number, RadiusSlice>();
+  const absorberSeen = new Set<number>();
+  for (const radius of manifest.radiusGrid) {
+    const block = manifest.candidacyByRadius[String(radius)];
+    if (!block) continue;
+    const { start, count } = block;
+    // Every radius block is laid out contiguously, but the four arrays within a block are
+    // not adjacent to the same arrays of other blocks, so offsets are computed per block
+    // from the global cursor the exporter used.
+    const base = start * (U16 * 2 + 2);
+    const absorber = new Uint16Array(raw.candidacyBin, base, count);
+    const target = new Uint16Array(raw.candidacyBin, base + count * U16, count);
+    const overlap = new Uint8Array(raw.candidacyBin, base + count * U16 * 2, count);
+    const seatInside = new Uint8Array(raw.candidacyBin, base + count * U16 * 2 + count, count);
+
+    for (let i = 0; i < count; i += 1) absorberSeen.add(absorber[i]!);
+
+    byRadius.set(radius, {
+      target,
+      overlap,
+      seatInside,
+      rowStart: rowOffsets(absorber, n),
+    });
+  }
+
+  return {
+    manifest,
+    attributes,
+    uatCount: n,
+    population,
+    seatX,
+    seatY,
+    administrativeRon,
+    operatingRon,
+    countyOf,
+    countyCodes,
+    neighbours,
+    neighbourStart,
+    byRadius,
+    absorbers: Uint16Array.from([...absorberSeen].sort((a, b) => a - b)),
+  };
+}

@@ -33,3 +33,6 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Vite/npm artefacts inside web/
+web/node_modules/
