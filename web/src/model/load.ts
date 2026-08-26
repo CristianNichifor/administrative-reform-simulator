@@ -75,6 +75,7 @@ export function decode(raw: RawPayload): ModelData {
   const edges = manifest.edgeCount;
   const edgeA = new Uint16Array(raw.adjacencyBin, 0, edges);
   const edgeB = new Uint16Array(raw.adjacencyBin, edges * U16, edges);
+  const edgeRoad = new Float32Array(raw.adjacencyBin, edges * U16 * 2, edges);
 
   const degree = new Uint32Array(n);
   for (let e = 0; e < edges; e += 1) {
@@ -89,21 +90,31 @@ export function decode(raw: RawPayload): ModelData {
   }
   const cursor = neighbourStart.slice(0, n);
   const neighbours = new Uint16Array(edges * 2);
+  const neighbourRoadM = new Float32Array(edges * 2);
   for (let e = 0; e < edges; e += 1) {
     const a = edgeA[e]!;
     const b = edgeB[e]!;
+    const metres = edgeRoad[e]!;
     neighbours[cursor[a]!] = b;
+    neighbourRoadM[cursor[a]!] = metres;
     cursor[a] = cursor[a]! + 1;
     neighbours[cursor[b]!] = a;
+    neighbourRoadM[cursor[b]!] = metres;
     cursor[b] = cursor[b]! + 1;
   }
   // The Python reference iterates neighbours in SIRUTA order, which is index order here.
-  // Sorting each row makes the two traversals identical rather than merely equivalent.
+  // Sorted together with their distances, so the two arrays stay aligned — sorting the
+  // neighbour row alone would silently pair each neighbour with the wrong distance.
   for (let i = 0; i < n; i += 1) {
     const from = neighbourStart[i]!;
     const to = neighbourStart[i + 1]!;
-    const row = neighbours.subarray(from, to);
-    row.sort();
+    const pairs = [];
+    for (let e = from; e < to; e += 1) pairs.push([neighbours[e]!, neighbourRoadM[e]!] as const);
+    pairs.sort((x, y) => x[0] - y[0]);
+    for (let k = 0; k < pairs.length; k += 1) {
+      neighbours[from + k] = pairs[k]![0];
+      neighbourRoadM[from + k] = pairs[k]![1];
+    }
   }
 
   // candidacy.bin: per radius, absorber u16[] | target u16[] | overlap u8[] | seat u8[]
@@ -144,6 +155,7 @@ export function decode(raw: RawPayload): ModelData {
     countyOf,
     countyCodes,
     neighbours,
+    neighbourRoadM,
     neighbourStart,
     byRadius,
     absorbers: Uint16Array.from([...absorberSeen].sort((a, b) => a - b)),

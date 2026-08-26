@@ -108,6 +108,8 @@ export interface ModelData {
   countyCodes: string[];
   /** Neighbours in compressed-row form, ascending within each row. */
   neighbours: Uint16Array;
+  /** Road distance in metres to each neighbour, aligned with `neighbours`. */
+  neighbourRoadM: Float32Array;
   neighbourStart: Uint32Array;
   /** Radius (metres) to its candidacy slice. */
   byRadius: Map<number, RadiusSlice>;

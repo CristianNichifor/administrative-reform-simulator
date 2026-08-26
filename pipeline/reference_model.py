@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import heapq
 import math
 import sys
 from collections import defaultdict
@@ -97,6 +98,8 @@ class Data:
     operating_ron: dict[str, float]
     administrative_ron: dict[str, float]
     neighbours: dict[str, tuple[str, ...]]
+    # Road distance in metres between the seats of two adjacent UATs, both directions.
+    road_distance: dict[tuple[str, str], float]
     # (radius, absorber) -> ((uat, overlap_fraction, seat_inside), ...) sorted for determinism
     candidacy: dict[tuple[int, str], tuple[tuple[str, float, bool], ...]]
     absorbers: tuple[str, ...]
@@ -117,12 +120,14 @@ def load_data() -> Data:
     uat_path = PROCESSED_DIR / "uat_geometry.gpkg"
     seat_path = PROCESSED_DIR / "uat_seats.gpkg"
     adj_path = PROCESSED_DIR / "adjacency.parquet"
+    road_path = PROCESSED_DIR / "road_distance.parquet"
     cand_path = PROCESSED_DIR / "candidacy.parquet"
     fin_path = PROCESSED_DIR / "finance.parquet"
     for path, cmd in (
         (uat_path, "build_geometry"),
         (seat_path, "build_seats"),
         (adj_path, "build_adjacency"),
+        (road_path, "build_road_distance"),
         (cand_path, "build_candidacy"),
         (fin_path, "build_finance"),
     ):
@@ -132,6 +137,7 @@ def load_data() -> Data:
     uats = gpd.read_file(uat_path, layer="uat")
     seats = gpd.read_file(seat_path, layer="seat")
     adjacency = pd.read_parquet(adj_path)
+    road = pd.read_parquet(road_path)
     candidacy = pd.read_parquet(cand_path)
     finance = pd.read_parquet(fin_path)
 
@@ -152,6 +158,16 @@ def load_data() -> Data:
         adjacent[a].add(b)
         adjacent[b].add(a)
     neighbours = {k: tuple(sorted(v)) for k, v in adjacent.items()}
+
+    # Both directions, so a lookup never has to order the pair first. Where routing failed
+    # the straight line stands in; it is a floor on the true distance rather than a guess.
+    road_distance: dict[tuple[str, str], float] = {}
+    for a, b, metres, straight in zip(
+        road["a_siruta"], road["b_siruta"], road["road_m"], road["straight_m"], strict=True
+    ):
+        value = float(metres) if math.isfinite(metres) else float(straight)
+        road_distance[(a, b)] = value
+        road_distance[(b, a)] = value
 
     grid: dict[tuple[int, str], list[tuple[str, float, bool]]] = defaultdict(list)
     for radius, absorber, target, fraction, seat_in in zip(
@@ -181,6 +197,7 @@ def load_data() -> Data:
         operating_ron=operating,
         administrative_ron=administrative,
         neighbours=neighbours,
+        road_distance=road_distance,
         candidacy=candidacy_map,
         absorbers=absorbers,
         by_county={k: tuple(v) for k, v in by_county.items()},
@@ -266,50 +283,66 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
 
 
 def accrete(data: Data, params: Params, result: Result) -> None:
-    """Brief §2 steps 3 and 4: concentric wave absorption in a strict, documented order."""
-    order = sorted(
-        result.seeds,
-        key=lambda s: (result.seeds[s], -data.population[s], s),
-    )
+    """Assign every reachable UAT to the centre nearest to it **by road**.
 
-    for absorber in order:
-        if absorber in result.region_of:
-            # Claimed by an earlier, higher-priority absorber, so it does not found a
-            # region of its own.
-            continue
+    This departs from brief §2 step 4, which resolves conflicts by processing order: county
+    capitals first, then by population. Measured on the real map that rule produces results
+    nobody can defend. Sarichioi shares a road-connected border with Babadag 12 km away and
+    does not border Tulcea at all, yet Tulcea took it — purely because county capitals are
+    processed first and Tulcea's large polygon buffers far enough to reach.
 
-        tier = result.seeds[absorber]
-        radius = _tier_radius(params, tier)
-        entries = data.candidacy.get((radius, absorber), ())
-        eligible = {
+    So the region grows as a shortest-path tree instead: a commune joins whichever centre
+    reaches it along the shortest road, measured seat to seat and accumulated along the
+    path actually travelled. That keeps every property the wave version had — a region is
+    connected, never leapfrogs, never crosses a county line — while making "why this centre
+    and not that one" answerable with a number rather than with a processing order.
+
+    Ties break on centre tier, then population descending, then SIRUTA, so the result stays
+    identical between runs.
+    """
+    # (distance, tier, -population, siruta, uat) — the tuple *is* the tie-break rule.
+    heap: list[tuple[float, int, int, str, str]] = []
+    for seed in sorted(result.seeds):
+        tier = result.seeds[seed]
+        heapq.heappush(heap, (0.0, tier, -data.population[seed], seed, seed))
+
+    # Candidacy per centre, resolved once: which UATs its radius admits at all.
+    eligible: dict[str, dict[str, float]] = {}
+    for seed, tier in result.seeds.items():
+        entries = data.candidacy.get((_tier_radius(params, tier), seed), ())
+        eligible[seed] = {
             target: fraction
             for target, fraction, seat_inside in entries
             if fraction >= params.min_overlap or seat_inside
         }
 
-        region = [absorber]
-        result.region_of[absorber] = absorber
-        frontier = [n for n in data.neighbours.get(absorber, ()) if n not in result.region_of]
+    while heap:
+        distance, tier, neg_population, absorber, uat = heapq.heappop(heap)
+        if uat in result.region_of:
+            continue
+        if uat != absorber:
+            if data.county[uat] != data.county[absorber]:
+                continue
+            if uat not in eligible[absorber]:
+                continue
 
-        while frontier:
-            wave = sorted(frontier, key=lambda u: (-eligible.get(u, 0.0), u))
-            next_wave: set[str] = set()
-            for u in wave:
-                if u in result.region_of:
-                    continue
-                if data.county[u] != data.county[absorber]:
-                    continue
-                if u not in eligible:
-                    continue
-                # The wave structure already guarantees contiguity: u entered the frontier
-                # because a member of *this* region borders it, so a region can never
-                # leapfrog a UAT it did not absorb.
-                region.append(u)
-                result.region_of[u] = absorber
-                next_wave |= {n for n in data.neighbours.get(u, ()) if n not in result.region_of}
-            frontier = sorted(next_wave)
+        result.region_of[uat] = absorber
+        result.members.setdefault(absorber, []).append(uat)
 
-        result.members[absorber] = region
+        for neighbour in data.neighbours.get(uat, ()):
+            if neighbour in result.region_of:
+                continue
+            step = data.road_distance.get(
+                (uat, neighbour),
+                # No routed distance: the border is road-crossing but the router could not
+                # find a path. Straight line is a floor on the real distance, so it never
+                # makes a centre look closer than it is by more than the detour.
+                _distance(data, uat, neighbour),
+            )
+            heapq.heappush(heap, (distance + step, tier, neg_population, absorber, neighbour))
+
+    for absorber in result.members:
+        result.members[absorber].sort(key=lambda m: (-data.population[m], m))
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:

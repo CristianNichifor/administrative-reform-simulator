@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 
 import geopandas as gpd
@@ -302,10 +303,35 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # --- adjacency --------------------------------------------------------------------
+    # Road distance rides along with the edges: the model needs it for every traversal, so
+    # keeping it in the same file avoids a second fetch and a second index to keep aligned.
+    road = pd.read_parquet(PROCESSED_DIR / "road_distance.parquet")
+    road_lookup = {
+        (a, b): (float(m) if math.isfinite(m) else float(st))
+        for a, b, m, st in zip(
+            road["a_siruta"], road["b_siruta"], road["road_m"], road["straight_m"], strict=True
+        )
+    }
+
     usable = adjacency[adjacency["traversable"]]
     a_idx = np.array([index_of[s] for s in usable["a_siruta"]], dtype=np.uint16)
     b_idx = np.array([index_of[s] for s in usable["b_siruta"]], dtype=np.uint16)
-    (WEB_DATA_DIR / "adjacency.bin").write_bytes(a_idx.tobytes() + b_idx.tobytes())
+    road_m = np.array(
+        [road_lookup[(a, b)] for a, b in zip(usable["a_siruta"], usable["b_siruta"], strict=True)],
+        dtype=np.float32,
+    )
+    (WEB_DATA_DIR / "adjacency.bin").write_bytes(
+        a_idx.tobytes() + b_idx.tobytes() + road_m.tobytes()
+    )
+
+    report.add(
+        Check(
+            "road_distance_exported",
+            True,
+            f"road distance on every edge: median {np.median(road_m) / 1000:.1f} km, "
+            f"max {road_m.max() / 1000:.1f} km",
+        )
+    )
 
     report.add(
         Check(

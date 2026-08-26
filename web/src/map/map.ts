@@ -156,14 +156,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     source: SOURCE_ID,
     paint: {
       'fill-color': ['coalesce', ['feature-state', 'colour'], UNCHANGED_COLOUR],
-      'fill-opacity': [
-        'case',
-        ['boolean', ['feature-state', 'selected'], false],
-        0.95,
-        ['boolean', ['feature-state', 'absorber'], false],
-        0.9,
-        0.72,
-      ],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.95, 0.78],
     },
   });
 
@@ -262,10 +255,12 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     source: 'seats',
     layout: { visibility: 'none' },
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.2, 10, 7],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.6, 10, 8],
+      // County capitals are gold, other centres white: the distinction a reader asks for
+      // first is "which of these is the capital", and it should not need a click.
       'circle-color': ['case', ['get', 'capital'], CAPITAL_COLOUR, SEAT_COLOUR],
       'circle-stroke-color': '#0f1216',
-      'circle-stroke-width': 1.2,
+      'circle-stroke-width': 1.4,
       'circle-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
       'circle-stroke-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
     },
@@ -363,14 +358,14 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
       const region = regionOf[i]!;
       const orphan = isOrphanRegion[region] === 1;
       const isAbsorber = region === i && tierOf[i] !== -1;
-      // In cost mode the absorber is not highlighted: the point of that view is the
-      // spending gradient, and a dark centre in every region would read as part of it.
+      // The centre takes the same fill as everything it absorbed, so a resulting unit
+      // reads as one shape rather than a ring around a differently-coloured hole. Which
+      // commune is the centre is shown by the marker on top instead — that is what the
+      // marker is for, and it does not cost the shape its legibility.
       const colour =
         mode === 'cost'
           ? costColour(costPerResident[i]!, costBreaks)
-          : isAbsorber
-            ? ABSORBER_COLOUR
-            : regionColour(region, orphan);
+          : regionColour(region, orphan);
       map.setFeatureState(
         { source: SOURCE_ID, id: i },
         { colour, absorber: mode === 'regions' && isAbsorber },

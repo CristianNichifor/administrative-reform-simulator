@@ -12,7 +12,6 @@ import { decode as decodeScenario, writeHash, type Scenario } from './app/scenar
 import { STRINGS, detectLang, formatMoney, formatNumber, type Lang, type Strings } from './i18n';
 import {
   createMap,
-  ABSORBER_COLOUR,
   CAPITAL_COLOUR,
   COST_RAMP,
   COUNTY_LINE_COLOUR,
@@ -213,8 +212,9 @@ async function boot(): Promise<void> {
         `<div class="ramp-labels" style="margin-top:4px"><span>RON: ${breaks}</span></div>`;
       return;
     }
-    const rows: [string, string][] = [
-      [ABSORBER_COLOUR, strings.legendAbsorber],
+    const rows: [string, string, boolean?][] = [
+      [CAPITAL_COLOUR, strings.legendCapital, true],
+      [SEAT_COLOUR, strings.legendAbsorber, true],
       [regionColour(0, false), strings.legendAbsorbed],
       [ORPHAN_COLOUR, strings.legendOrphan],
       [UNCHANGED_COLOUR, strings.legendUnchanged],
@@ -223,8 +223,8 @@ async function boot(): Promise<void> {
       `<h4>${strings.legend}</h4>` +
       rows
         .map(
-          ([colour, label]) =>
-            `<div class="row"><span class="swatch" style="background:${colour}"></span>${label}</div>`,
+          ([colour, label, isDot]) =>
+            `<div class="row"><span class="swatch${isDot ? ' dot' : ''}" style="background:${colour}"></span>${label}</div>`,
         )
         .join('');
   };

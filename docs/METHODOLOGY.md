@@ -56,18 +56,29 @@ main village falls inside it. The first test has a threshold you can set; withou
 commune could be absorbed on the strength of a few metres of overlap at one corner, which
 looks indefensible on a map and would be the first thing an opponent screenshotted.
 
-**Step 3 — absorption.**
-Centres take communes in a strict order: county capitals first, all of them, then
-population-threshold centres, then promoted ones. Within each group, larger population goes
-first. Ties are broken by SIRUTA code, so the order never varies between runs.
+**Step 3 — absorption, by road distance.**
+A commune joins whichever centre reaches it **along the shortest road**. Distance is
+measured between seat villages, on the real road network, and accumulated along the path
+travelled — so a commune three communes away from its centre is charged the full driving
+distance through all three.
 
-Each centre grows in rings. It first considers the communes bordering it, then the communes
-bordering *those*, and so on. A commune can only join if it touches something already in
-that region, so a region can never jump over a commune it did not absorb. Once a commune is
-taken, it is taken — the first centre to reach it keeps it.
+A commune can only join if it borders something already in that region, so a region never
+jumps over a commune it did not absorb, and once a commune is taken it is taken.
 
 Two hard limits: a region **never crosses a county boundary**, and a commune can only be
 absorbed across a border that a road actually crosses.
+
+*This changed after the first version.* The original rule resolved competition by
+processing order — county capitals first, then by population — and it produced results that
+could not be defended. Sarichioi shares a road-connected border with Babadag 16 km away and
+does not border Tulcea at all, yet Tulcea took it, purely because capitals go first and
+Tulcea's territory is large enough to buffer that far. Measuring the road fixes that class
+of result, and it matters more than it sounds: across all 9,281 adjacent pairs the road is a
+median of **1.41×** the straight line, and in the worst cases **12×**. Around the Razim
+lagoon, a straight line is close to meaningless.
+
+Ties — genuinely equal road distances — break on centre tier, then population, then SIRUTA,
+so two runs always agree.
 
 **Step 4 — what is left over.**
 Communes no centre reached can pair up with each other, smallest first, up to a size limit
@@ -139,10 +150,20 @@ formula to all operating spending, is shown as an explicit **upper bound** — i
 seven times larger and it assumes the absorbed commune's schools and social services vanish
 along with its mayor. It should not be quoted on its own.
 
-**Roads are a yes/no test, not a distance.** The model asks only whether a road crosses the
-border between two communes. It does not measure travel time or route distance. A road
-counts if it passes near the shared border *and* enters both communes — a road running
-parallel along one side of a boundary is not a connection across it.
+**Roads decide two different things.** Whether a border may be crossed at all is a yes/no
+test: a road counts if it passes near the shared border *and* enters both communes, so a
+road running parallel along one side of a boundary is not a connection across it. Which
+centre wins is then decided by road **distance** between seat villages.
+
+Distance is measured on the classified network — motorways down to `unclassified`, which in
+rural Romania is most of what links one commune to the next — plus slip roads. Residential
+streets are excluded: including them triples the graph for routes that differ only in the
+few hundred metres at each end, which is noise against a 13 km median. 437 of 9,281 pairs
+could not be routed and fall back to the straight line, which understates rather than
+inflates their distance.
+
+It is still not travel *time*. A mountain road and a motorway of the same length count the
+same.
 
 Road classification comes from OpenStreetMap and is not always right. In the Danube Delta,
 sand tracks and dyke roads are tagged as ordinary roads, so the model treats several Delta

@@ -73,6 +73,7 @@ export interface Strings {
   whyTargetMerge: string;
   whyCountyRule: string;
   legend: string;
+  legendCapital: string;
   legendAbsorber: string;
   legendAbsorbed: string;
   legendOrphan: string;
@@ -170,8 +171,9 @@ const ro: Strings = {
     'Unit după aplicarea pragului de populație minimă rezultată ({target} locuitori).',
   whyCountyRule: 'Toate comunele sunt din județul {county} — regiunile nu traversează limitele de județ.',
   legend: 'Legendă',
-  legendAbsorber: 'Centru (primăria supraviețuiește)',
-  legendAbsorbed: 'Absorbit de un centru',
+  legendCapital: 'Reședință de județ (centru)',
+  legendAbsorber: 'Centru — primăria supraviețuiește',
+  legendAbsorbed: 'Comună absorbită (aceeași culoare ca centrul ei)',
   legendOrphan: 'Grupare de comune mici',
   legendUnchanged: 'Neschimbat',
 
@@ -267,8 +269,9 @@ const en: Strings = {
     'Merged after applying the minimum resulting population ({target} residents).',
   whyCountyRule: 'Every commune here is in {county} — regions never cross county boundaries.',
   legend: 'Legend',
-  legendAbsorber: 'Centre (its administration survives)',
-  legendAbsorbed: 'Absorbed by a centre',
+  legendCapital: 'County capital (a centre)',
+  legendAbsorber: 'Centre — its administration survives',
+  legendAbsorbed: 'Absorbed commune (same colour as its centre)',
   legendOrphan: 'Small-commune cluster',
   legendUnchanged: 'Unchanged',
 

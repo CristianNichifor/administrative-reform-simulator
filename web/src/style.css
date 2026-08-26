@@ -470,6 +470,13 @@ button {
   flex: none;
 }
 
+.legend .swatch.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid #0f1216;
+}
+
 /* --- disclaimer --------------------------------------------------------------------- */
 .disclaimer {
   position: absolute;

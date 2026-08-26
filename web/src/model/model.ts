@@ -176,6 +176,23 @@ function selectSeeds(data: ModelData, params: Params): {
   return { tierOf, underSeeded };
 }
 
+/**
+ * Assign every reachable UAT to the centre nearest to it **by road**.
+ *
+ * This replaces the brief's conflict rule, which resolved by processing order: county
+ * capitals first, then by population. On the real map that produced results nobody can
+ * defend. Sarichioi shares a road-connected border with Babadag 16 km away and does not
+ * border Tulcea at all, yet Tulcea took it, purely because capitals are processed first
+ * and Tulcea's large polygon buffers far enough to reach.
+ *
+ * The region now grows as a shortest-path tree: a commune joins whichever centre reaches
+ * it along the shortest road, accumulated seat to seat along the path actually travelled.
+ * Every property the wave version had survives — regions stay connected, never leapfrog,
+ * never cross a county line — but "why this centre and not that one" is now answerable
+ * with a number instead of with an ordering.
+ *
+ * Ties break on centre tier, then population descending, then index, so two runs agree.
+ */
 function accrete(
   data: ModelData,
   params: Params,
@@ -187,95 +204,113 @@ function accrete(
   const seeds: number[] = [];
   for (let i = 0; i < data.uatCount; i += 1) if (tierOf[i] !== -1) seeds.push(i);
 
-  // Tier ascending, then population descending, then index ascending. Never iterate an
-  // unsorted collection here: the map must not flicker between runs.
-  seeds.sort((a, b) => {
-    const t = tierOf[a]! - tierOf[b]!;
-    if (t !== 0) return t;
-    const p = data.population[b]! - data.population[a]!;
-    if (p !== 0) return p;
-    return a - b;
-  });
-
-  const eligible = new Float64Array(data.uatCount);
-  const isEligible = new Uint8Array(data.uatCount);
-
-  for (const absorber of seeds) {
-    // Claimed by an earlier, higher-priority absorber, so it founds no region of its own.
-    if (regionOf[absorber] !== NO_REGION) continue;
-
-    const tier = tierOf[absorber]!;
-    const slice = sliceFor(data, params, tier);
-    isEligible.fill(0);
+  // Which UATs each centre's radius admits at all, resolved once per centre.
+  const eligible = new Map<number, Map<number, number>>();
+  for (const seed of seeds) {
+    const slice = sliceFor(data, params, tierOf[seed]!);
+    const admitted = new Map<number, number>();
     if (slice) {
-      const from = slice.rowStart[absorber]!;
-      const to = slice.rowStart[absorber + 1]!;
       const threshold = params.minOverlap * data.manifest.overlapScale;
-      for (let i = from; i < to; i += 1) {
+      for (let i = slice.rowStart[seed]!; i < slice.rowStart[seed + 1]!; i += 1) {
         if (slice.overlap[i]! >= threshold || slice.seatInside[i] === 1) {
-          const t = slice.target[i]!;
-          isEligible[t] = 1;
-          eligible[t] = slice.overlap[i]! / data.manifest.overlapScale;
+          admitted.set(slice.target[i]!, slice.overlap[i]!);
         }
       }
     }
+    eligible.set(seed, admitted);
+  }
 
-    regionOf[absorber] = absorber;
-    reasonOf[absorber] =
-      tier === TIER_COUNTY_CAPITAL
-        ? REASON.CENTRE_CAPITAL
-        : tier === TIER_POPULATION
-          ? REASON.CENTRE_THRESHOLD
-          : REASON.CENTRE_PROMOTED;
-    const county = data.countyOf[absorber]!;
+  // A binary heap keyed on the full tie-break tuple. Sorting an array on every push would
+  // dominate the runtime budget; the model has to finish inside a slider frame.
+  const heapDist: number[] = [];
+  const heapAbsorber: number[] = [];
+  const heapUat: number[] = [];
 
-    let frontier: number[] = [];
-    for (let e = data.neighbourStart[absorber]!; e < data.neighbourStart[absorber + 1]!; e += 1) {
+  const better = (i: number, j: number): boolean => {
+    if (heapDist[i] !== heapDist[j]) return heapDist[i]! < heapDist[j]!;
+    const ai = heapAbsorber[i]!;
+    const aj = heapAbsorber[j]!;
+    if (tierOf[ai] !== tierOf[aj]) return tierOf[ai]! < tierOf[aj]!;
+    if (data.population[ai] !== data.population[aj]) {
+      return data.population[ai]! > data.population[aj]!;
+    }
+    if (ai !== aj) return ai < aj;
+    return heapUat[i]! < heapUat[j]!;
+  };
+
+  const swap = (i: number, j: number): void => {
+    [heapDist[i], heapDist[j]] = [heapDist[j]!, heapDist[i]!];
+    [heapAbsorber[i], heapAbsorber[j]] = [heapAbsorber[j]!, heapAbsorber[i]!];
+    [heapUat[i], heapUat[j]] = [heapUat[j]!, heapUat[i]!];
+  };
+
+  const push = (distance: number, absorber: number, uat: number): void => {
+    heapDist.push(distance);
+    heapAbsorber.push(absorber);
+    heapUat.push(uat);
+    let i = heapDist.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!better(i, parent)) break;
+      swap(i, parent);
+      i = parent;
+    }
+  };
+
+  const pop = (): [number, number, number] => {
+    const top: [number, number, number] = [heapDist[0]!, heapAbsorber[0]!, heapUat[0]!];
+    const last = heapDist.length - 1;
+    swap(0, last);
+    heapDist.pop();
+    heapAbsorber.pop();
+    heapUat.pop();
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let best = i;
+      if (l < heapDist.length && better(l, best)) best = l;
+      if (r < heapDist.length && better(r, best)) best = r;
+      if (best === i) break;
+      swap(i, best);
+      i = best;
+    }
+    return top;
+  };
+
+  for (const seed of seeds.slice().sort((a, b) => a - b)) push(0, seed, seed);
+
+  while (heapDist.length > 0) {
+    const [distance, absorber, uat] = pop();
+    if (regionOf[uat] !== NO_REGION) continue;
+
+    if (uat !== absorber) {
+      if (data.countyOf[uat] !== data.countyOf[absorber]) continue;
+      const admitted = eligible.get(absorber)!;
+      if (!admitted.has(uat)) continue;
+
+      const pct = admitted.get(uat)!;
+      overlapOf[uat] = pct;
+      reasonOf[uat] =
+        pct >= Math.round(params.minOverlap * 100)
+          ? REASON.ABSORBED_OVERLAP
+          : REASON.ABSORBED_SEAT;
+    } else {
+      const tier = tierOf[absorber]!;
+      reasonOf[absorber] =
+        tier === TIER_COUNTY_CAPITAL
+          ? REASON.CENTRE_CAPITAL
+          : tier === TIER_POPULATION
+            ? REASON.CENTRE_THRESHOLD
+            : REASON.CENTRE_PROMOTED;
+    }
+
+    regionOf[uat] = absorber;
+
+    for (let e = data.neighbourStart[uat]!; e < data.neighbourStart[uat + 1]!; e += 1) {
       const nb = data.neighbours[e]!;
-      if (regionOf[nb] === NO_REGION) frontier.push(nb);
-    }
-
-    while (frontier.length > 0) {
-      // Overlap descending, then index (SIRUTA) ascending.
-      frontier.sort((a, b) => {
-        // `eligible` is reused between absorbers, so it is only ever read through
-        // `isEligible`; a leftover value from a previous absorber must not reorder
-        // this one's wave.
-        const oa = isEligible[a] === 1 ? eligible[a]! : 0;
-        const ob = isEligible[b] === 1 ? eligible[b]! : 0;
-        if (ob !== oa) return ob - oa;
-        return a - b;
-      });
-
-      const nextWave = new Set<number>();
-      for (const u of frontier) {
-        if (regionOf[u] !== NO_REGION) continue;
-        // Defence in depth, and currently unreachable: build_candidacy already drops
-        // cross-county pairs, so no such UAT can be eligible. Removing this changes no
-        // output today — verified by perturbation — but the rule belongs with the model
-        // rather than resting solely on how the grid happens to be built.
-        if (data.countyOf[u] !== county) continue;
-        if (isEligible[u] === 0) continue;
-
-        // Contiguity is a property of the traversal, not a separate check: u is in the
-        // frontier only because a member of *this* region borders it, so a region can
-        // never leapfrog a UAT it did not absorb.
-        regionOf[u] = absorber;
-        // Which of the two candidacy tests admitted it. The overlap rule is the ordinary
-        // case; the seat rule is what lets a commune whose territory barely grazes the
-        // radius still join, because its village is inside.
-        const pct = Math.round(eligible[u]! * 100);
-        overlapOf[u] = pct;
-        reasonOf[u] =
-          pct >= Math.round(params.minOverlap * 100)
-            ? REASON.ABSORBED_OVERLAP
-            : REASON.ABSORBED_SEAT;
-        for (let e = data.neighbourStart[u]!; e < data.neighbourStart[u + 1]!; e += 1) {
-          const nb = data.neighbours[e]!;
-          if (regionOf[nb] === NO_REGION) nextWave.add(nb);
-        }
-      }
-      frontier = [...nextWave].sort((a, b) => a - b);
+      if (regionOf[nb] !== NO_REGION) continue;
+      push(distance + data.neighbourRoadM[e]!, absorber, nb);
     }
   }
 }
