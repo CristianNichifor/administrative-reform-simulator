@@ -68,7 +68,7 @@ are verified before any frontend work begins.
 - [x] `export.py` — typed-array payload for the browser
 - [x] TypeScript port + parity tests
 - [x] Frontend — MapLibre map, model in a Web Worker, RO/EN, deep-linkable scenarios
-- [ ] METHODOLOGY.md written out in full, RO + EN
+- [x] METHODOLOGY.md written out in full, RO + EN
 
 ## Determinism and how to check it
 

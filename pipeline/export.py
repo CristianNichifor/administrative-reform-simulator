@@ -37,7 +37,7 @@ from pipeline.constants import (
     RADIUS_GRID_M,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
-from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DATA_DIR
+from pipeline.paths import DOCS_DIR, PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DATA_DIR
 
 # Overlap is stored as a percentage in a single byte. The pipeline already quantises to two
 # decimals, so this loses nothing that was ever there.
@@ -212,6 +212,14 @@ def main(argv: list[str] | None = None) -> int:
         "candidacyByRadius": radius_offsets,
     }
     (WEB_DATA_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    # Ship the methodology alongside the app so the in-app link resolves on GitHub Pages
+    # rather than pointing at a repository the reader may not think to go looking for.
+    methodology = DOCS_DIR / "METHODOLOGY.md"
+    if methodology.exists():
+        (WEB_DATA_DIR.parent / "METHODOLOGY.md").write_text(
+            methodology.read_text(encoding="utf-8"), encoding="utf-8"
+        )
 
     sizes = {
         p.name: p.stat().st_size

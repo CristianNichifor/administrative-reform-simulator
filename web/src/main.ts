@@ -350,6 +350,9 @@ function methodologyHtml(s: Strings): string {
         ? 'Raza este o distanță în linie dreaptă, nu pe drum. Drumurile sunt folosite doar pentru a verifica dacă o graniță este traversată. Datele despre drumuri provin din OpenStreetMap și clasificarea lor nu este întotdeauna exactă — în Delta Dunării, de exemplu, unele drumuri de pământ apar ca drumuri obișnuite.'
         : 'The radius is a straight-line distance, not a road distance. Roads are used only to test whether a border is crossed. Road data comes from OpenStreetMap and its classification is not always exact — in the Danube Delta, for instance, some sand tracks are tagged as ordinary roads.'
     }</p>
+    <p><a href="${import.meta.env.BASE_URL}METHODOLOGY.md" target="_blank" rel="noopener">${
+      ro ? 'Metodologia completă, inclusiv sursele și deciziile contestabile' : 'Full methodology, including sources and disputable decisions'
+    }</a></p>
     <button class="ghost">${s.close}</button>`;
 }
 
