@@ -1,0 +1,20 @@
+# Manual seat corrections, applied by build_seats.py after automatic resolution.
+#
+# Add a row when the automatic cascade picks the wrong locality. Every row needs a source,
+# because a seat that cannot be justified is a seat that cannot be defended when the
+# resulting map is disputed.
+#
+# uat_siruta:      SIRUTA of the UAT
+# seat_siruta:     SIRUTA of the locality that is actually the seat
+# note:            why, with a citable source
+#
+# Candidates awaiting confirmation (build_seats currently resolves these by deterministic
+# tiebreak, and flags them as name_prefix_ambiguous):
+#   ORAS EFORIE (CT)   picked Eforie Sud; the administrative centre is understood to be
+#                      Eforie Nord. Needs confirmation against the town's own statute.
+#   HARMANESTI (IS)    picked Harmanestii Noi; likely Harmanestii Vechi.
+#   RAU ALB (DB)       picked Rau Alb de Jos; believed correct.
+#   PORUMBENI (HR)     picked Porumbenii Mari; believed correct.
+#   SARBII - MAGURA (OT) has one locality, Vitanesti, whose name does not match the
+#                      commune's at all. Worth checking the SIRUTA linkage.
+uat_siruta,seat_siruta,note

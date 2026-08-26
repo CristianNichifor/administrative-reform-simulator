@@ -78,6 +78,39 @@ BOUNDARY_LINES = Source(
 WFS_LAU_LINE_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_line"
 
 
+# --- Locality points (UAT seats) --------------------------------------------------------
+# The brief specifies taking commune seats from SIRUTA's `reședință de comună` and their
+# coordinates from OSM `place=village/town`, explicitly not polygon centroids.
+#
+# This layer is better than that plan: it is the SIRUTA locality nomenclator *with*
+# geometry, so no name-based match against OSM is needed at all. Every locality carries
+# its own SIRUTA (`natCode`), its parent UAT's SIRUTA (`supCode`) and its SIRUTA rank:
+#
+#   I    Bucuresti
+#   II   municipiu resedinta de judet
+#   III  other municipii and orase
+#   IV   sat resedinta de comuna
+#   V    sat component
+#
+# The seat of a UAT is the locality whose supCode is that UAT and whose rank is the most
+# significant present — rank V localities are never seats.
+LOCALITIES = Source(
+    key="uat_seats",
+    title="SIRUTA locality points, Romania",
+    url=f"{WFS_BASE}?service=WFS&version=2.0.0&request=GetFeature"
+    f"&typeNames=geospatial:ro_localitati_punct",
+    licence="CC BY-SA 4.0",
+    attribution="SIRUTA / ANCPI, republished by geo-spatial.org",
+    note="13,750 localities. natCode=locality SIRUTA, supCode=parent UAT SIRUTA, rank=I-V.",
+)
+
+WFS_LOCALITIES_TYPENAME: Final = "geospatial:ro_localitati_punct"
+
+# Ranks that can denote a UAT seat, most significant first. Rank V is a component village
+# and is never a seat.
+SEAT_RANKS: Final[tuple[str, ...]] = ("I", "II", "III", "IV")
+
+
 # --- Attributes: SIRUTA, name, county, population ---------------------------------------
 # Transparenta.eu's public GraphQL API. Its UATs table is built from
 # `uat_cif_pop_2021.csv` — INS Census 2021, the vintage the brief specifies — and has
@@ -116,4 +149,10 @@ ROADS = Source(
 )
 
 
-ALL_SOURCES: Final[tuple[Source, ...]] = (BOUNDARIES, BOUNDARY_LINES, ATTRIBUTES, ROADS)
+ALL_SOURCES: Final[tuple[Source, ...]] = (
+    BOUNDARIES,
+    BOUNDARY_LINES,
+    LOCALITIES,
+    ATTRIBUTES,
+    ROADS,
+)

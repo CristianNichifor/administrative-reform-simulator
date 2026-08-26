@@ -134,6 +134,42 @@ def fetch_boundary_lines(force: bool = False) -> Path:
     return out
 
 
+def fetch_localities(force: bool = False) -> Path:
+    """SIRUTA locality points, from which UAT seats are resolved."""
+    out = RAW_DIR / "localities.geojson"
+    print(f"[localities] {out.name}")
+    if _skip(out, force):
+        return out
+
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": sources.WFS_LOCALITIES_TYPENAME,
+        "outputFormat": "application/json",
+        "srsName": f"urn:ogc:def:crs:EPSG::{CRS_STEREO70.split(':')[1]}",
+    }
+    r = requests.get(
+        sources.WFS_BASE, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    payload = r.json()
+
+    n = len(payload.get("features", []))
+    # Romania has ~13,000 localities; the exact count shifts between SIRUTA vintages, so
+    # this is a plausibility band rather than an equality check.
+    if not 12_000 <= n <= 15_000:
+        raise SystemExit(
+            f"  FATAL: {n} localities, expected roughly 13,750.\n"
+            "  Every seat point derives from this layer."
+        )
+
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _sidecar(out, sources.LOCALITIES, feature_count=n, srs_requested=CRS_STEREO70)
+    print(f"  {n} localities, {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
 def _graphql_page(session: requests.Session, limit: int, offset: int) -> dict:
     query = """
     query UATs($limit: Int!, $offset: Int!) {
@@ -255,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
 
     fetch_boundaries(args.force)
     fetch_boundary_lines(args.force)
+    fetch_localities(args.force)
     fetch_attributes(args.force)
     if args.with_roads:
         fetch_roads(args.force)
