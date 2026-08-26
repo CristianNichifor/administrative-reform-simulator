@@ -1,0 +1,231 @@
+"""Download raw sources into ``data/raw/``.
+
+Idempotent: an existing, non-empty artefact is left alone unless ``--force`` is passed.
+The pipeline must be reproducible from this script on a clean machine, so everything it
+writes is a verbatim upstream response plus a small sidecar recording where it came from
+and when.
+
+Usage:
+    uv run python -m pipeline.fetch                 # boundaries + attributes
+    uv run python -m pipeline.fetch --with-roads    # also the 312 MB OSM extract
+    uv run python -m pipeline.fetch --force
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from dataclasses import asdict
+from datetime import UTC, datetime
+from pathlib import Path
+
+import requests
+
+from pipeline import sources
+from pipeline.constants import CRS_STEREO70, EXPECTED_COUNTY_COUNT, EXPECTED_UAT_COUNT
+from pipeline.paths import RAW_DIR
+
+USER_AGENT = (
+    "administrative-reform-simulator/0.1 (+https://github.com/; open-source civic tool; "
+    "contact via repository issues)"
+)
+TIMEOUT = 120
+
+# Transparenta.eu is a volunteer-run public service. Page politely and identify ourselves.
+GRAPHQL_PAGE_SIZE = 500
+GRAPHQL_PAGE_DELAY_S = 0.5
+
+
+def _sidecar(path: Path, source: sources.Source, **extra: object) -> None:
+    """Record provenance next to the artefact, so a stale download is diagnosable."""
+    meta = {
+        "source": asdict(source),
+        "fetched_at": datetime.now(UTC).isoformat(),
+        "artefact": path.name,
+        **extra,
+    }
+    path.with_suffix(path.suffix + ".meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
+def _skip(path: Path, force: bool) -> bool:
+    if path.exists() and path.stat().st_size > 0 and not force:
+        mb = path.stat().st_size / 1_048_576
+        print(f"  exists, skipping ({mb:.1f} MB) — use --force to refetch")
+        return True
+    return False
+
+
+def fetch_boundaries(force: bool = False) -> Path:
+    """UAT polygons from the geo-spatial.org WFS mirror of ANCPI, in EPSG:3844."""
+    out = RAW_DIR / "uat_boundaries.geojson"
+    print(f"[boundaries] {out.name}")
+    if _skip(out, force):
+        return out
+
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": sources.WFS_LAU_TYPENAME,
+        "outputFormat": "application/json",
+        # Ask for the native CRS explicitly rather than trusting the server default.
+        # Everything downstream buffers in metres; a silent WGS84 response would produce
+        # radii that are wrong by latitude and a map that still looks plausible.
+        "srsName": f"urn:ogc:def:crs:EPSG::{CRS_STEREO70.split(':')[1]}",
+    }
+    r = requests.get(
+        sources.WFS_BASE, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    payload = r.json()
+
+    n = len(payload.get("features", []))
+    if n != EXPECTED_UAT_COUNT:
+        raise SystemExit(
+            f"  FATAL: WFS returned {n} features, expected {EXPECTED_UAT_COUNT}.\n"
+            "  The upstream layer changed. Do not proceed — a wrong UAT set silently\n"
+            "  changes every region in every scenario."
+        )
+
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _sidecar(out, sources.BOUNDARIES, feature_count=n, srs_requested=CRS_STEREO70)
+    print(f"  {n} features, {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
+def _graphql_page(session: requests.Session, limit: int, offset: int) -> dict:
+    query = """
+    query UATs($limit: Int!, $offset: Int!) {
+      uats(filter: { is_county: false }, limit: $limit, offset: $offset) {
+        pageInfo { totalCount }
+        nodes {
+          siruta_code
+          uat_code
+          name
+          county_code
+          county_name
+          population
+        }
+      }
+    }
+    """
+    r = session.post(
+        sources.GRAPHQL_ENDPOINT,
+        json={"query": query, "variables": {"limit": limit, "offset": offset}},
+        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    body = r.json()
+    if "errors" in body:
+        raise SystemExit(f"  FATAL: GraphQL errors: {json.dumps(body['errors'])[:400]}")
+    return body["data"]["uats"]
+
+
+def fetch_attributes(force: bool = False) -> Path:
+    """SIRUTA, name, county and Census-2021 population for every non-county UAT."""
+    out = RAW_DIR / "uat_attributes.json"
+    print(f"[attributes] {out.name}")
+    if _skip(out, force):
+        return out
+
+    session = requests.Session()
+    nodes: list[dict] = []
+    offset = 0
+    total: int | None = None
+
+    while True:
+        page = _graphql_page(session, GRAPHQL_PAGE_SIZE, offset)
+        if total is None:
+            total = page["pageInfo"]["totalCount"]
+            print(f"  totalCount={total}")
+        batch = page["nodes"]
+        if not batch:
+            break
+        nodes.extend(batch)
+        print(f"  fetched {len(nodes)}/{total}", end="\r", flush=True)
+        offset += len(batch)
+        if offset >= total:
+            break
+        time.sleep(GRAPHQL_PAGE_DELAY_S)
+    print()
+
+    if len(nodes) != EXPECTED_UAT_COUNT:
+        raise SystemExit(
+            f"  FATAL: got {len(nodes)} UATs, expected {EXPECTED_UAT_COUNT}.\n"
+            "  Refusing to write a partial attribute set — it would show up later as a\n"
+            "  hole in the map rather than as an error here."
+        )
+
+    duplicates = len(nodes) - len({n["siruta_code"] for n in nodes})
+    if duplicates:
+        raise SystemExit(f"  FATAL: {duplicates} duplicate SIRUTA codes in the response.")
+
+    out.write_text(json.dumps(nodes, ensure_ascii=False, indent=1), encoding="utf-8")
+    _sidecar(
+        out,
+        sources.ATTRIBUTES,
+        record_count=len(nodes),
+        expected_county_rows_excluded=EXPECTED_COUNTY_COUNT,
+    )
+    print(f"  {len(nodes)} records, {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
+def fetch_roads(force: bool = False) -> Path:
+    """The OSM Romania extract. Large; only needed from build_adjacency.py onwards."""
+    out = RAW_DIR / "romania-latest.osm.pbf"
+    print(f"[roads] {out.name}")
+    if _skip(out, force):
+        return out
+
+    with requests.get(
+        sources.ROADS.url, headers={"User-Agent": USER_AGENT}, stream=True, timeout=TIMEOUT
+    ) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length", 0))
+        done = 0
+        tmp = out.with_suffix(".partial")
+        with tmp.open("wb") as fh:
+            for chunk in r.iter_content(chunk_size=1 << 20):
+                fh.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"  {done / 1_048_576:6.0f}/{total / 1_048_576:.0f} MB", end="\r")
+        print()
+        tmp.rename(out)
+
+    _sidecar(out, sources.ROADS, bytes=out.stat().st_size)
+    print(f"  {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--force", action="store_true", help="refetch even if present")
+    ap.add_argument(
+        "--with-roads",
+        action="store_true",
+        help="also download the ~312 MB OSM extract (needed for build_adjacency.py)",
+    )
+    args = ap.parse_args(argv)
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    fetch_boundaries(args.force)
+    fetch_attributes(args.force)
+    if args.with_roads:
+        fetch_roads(args.force)
+    else:
+        print("[roads] skipped — pass --with-roads when you need the adjacency graph")
+
+    print("\nDone. Next: uv run python -m pipeline.build_geometry")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
