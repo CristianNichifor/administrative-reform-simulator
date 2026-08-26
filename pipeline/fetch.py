@@ -97,6 +97,43 @@ def fetch_boundaries(force: bool = False) -> Path:
     return out
 
 
+def fetch_boundary_lines(force: bool = False) -> Path:
+    """Shared boundary segments, each carrying the SIRUTA on either side."""
+    out = RAW_DIR / "uat_boundary_lines.geojson"
+    print(f"[boundary lines] {out.name}")
+    if _skip(out, force):
+        return out
+
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": sources.WFS_LAU_LINE_TYPENAME,
+        "outputFormat": "application/json",
+        "srsName": f"urn:ogc:def:crs:EPSG::{CRS_STEREO70.split(':')[1]}",
+    }
+    r = requests.get(
+        sources.WFS_BASE, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    payload = r.json()
+
+    n = len(payload.get("features", []))
+    # No exact expected count here: unlike the UAT set, the segment count is an artefact of
+    # how boundaries were digitised and can legitimately shift between vintages. The brief
+    # anticipates 8-9k edges nationally, so treat a wild departure as a signal.
+    if not 5_000 <= n <= 15_000:
+        raise SystemExit(
+            f"  FATAL: {n} boundary segments, expected roughly 8,000-9,000.\n"
+            "  The upstream layer changed shape. Adjacency underpins the whole model."
+        )
+
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _sidecar(out, sources.BOUNDARY_LINES, feature_count=n, srs_requested=CRS_STEREO70)
+    print(f"  {n} segments, {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
 def _graphql_page(session: requests.Session, limit: int, offset: int) -> dict:
     query = """
     query UATs($limit: Int!, $offset: Int!) {
@@ -217,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     fetch_boundaries(args.force)
+    fetch_boundary_lines(args.force)
     fetch_attributes(args.force)
     if args.with_roads:
         fetch_roads(args.force)

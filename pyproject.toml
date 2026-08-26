@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=1.26",
     "pyogrio>=0.9",
     "requests>=2.32",
+    "pyarrow>=25.0.1",
 ]
 
 [dependency-groups]

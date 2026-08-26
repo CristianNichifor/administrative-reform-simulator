@@ -49,6 +49,35 @@ BOUNDARIES = Source(
 WFS_LAU_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_polygon"
 
 
+# --- Shared boundaries (adjacency) -------------------------------------------------------
+# The brief specifies deriving adjacency via Queen contiguity and then extracting each
+# shared boundary with ST_Intersection. This layer supplies both directly: it is the
+# official boundary-segment geometry, and each segment already carries the SIRUTA code of
+# the UAT on either side.
+#
+# Preferred over deriving it because the segments are the authoritative boundaries rather
+# than an intersection we computed, which removes a class of sliver/precision artefacts at
+# the exact step where they would matter — the 50 m buffer used for the road test.
+#
+# `leftid`/`rightid` of 0 means the other side is outside Romania (national border).
+# Segments are not unique per pair: one shared border can be split across several segments,
+# so they must be dissolved onto an unordered (min, max) SIRUTA pair.
+BOUNDARY_LINES = Source(
+    key="uat_boundary_lines",
+    title="UAT shared boundary segments, Romania",
+    url=f"{WFS_BASE}?service=WFS&version=2.0.0&request=GetFeature"
+    f"&typeNames=administrative-boundaries:ro_admin_lau_line",
+    licence="CC BY-SA 4.0",
+    attribution="ANCPI (RELUAT), republished by geo-spatial.org",
+    note=(
+        "9,644 segments, EPSG:3844. leftid/rightid are SIRUTA; 0 means the national "
+        "border. legalstat records whether the boundary is legally agreed."
+    ),
+)
+
+WFS_LAU_LINE_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_line"
+
+
 # --- Attributes: SIRUTA, name, county, population ---------------------------------------
 # Transparenta.eu's public GraphQL API. Its UATs table is built from
 # `uat_cif_pop_2021.csv` — INS Census 2021, the vintage the brief specifies — and has
@@ -87,4 +116,4 @@ ROADS = Source(
 )
 
 
-ALL_SOURCES: Final[tuple[Source, ...]] = (BOUNDARIES, ATTRIBUTES, ROADS)
+ALL_SOURCES: Final[tuple[Source, ...]] = (BOUNDARIES, BOUNDARY_LINES, ATTRIBUTES, ROADS)
