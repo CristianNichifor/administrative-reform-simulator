@@ -37,7 +37,7 @@ from pipeline.constants import (
     RADIUS_GRID_M,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
-from pipeline.paths import PROCESSED_DIR, REPORTS_DIR, WEB_DATA_DIR
+from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DATA_DIR
 
 # Overlap is stored as a percentage in a single byte. The pipeline already quantises to two
 # decimals, so this loses nothing that was ever there.
@@ -49,8 +49,8 @@ def load() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame, pd.DataFra
         "uat": PROCESSED_DIR / "uat_geometry.gpkg",
         "seat": PROCESSED_DIR / "uat_seats.gpkg",
         "adjacency": PROCESSED_DIR / "adjacency.parquet",
-        "candidacy": WEB_DATA_DIR / "candidacy.parquet",
-        "finance": WEB_DATA_DIR / "finance.parquet",
+        "candidacy": PROCESSED_DIR / "candidacy.parquet",
+        "finance": PROCESSED_DIR / "finance.parquet",
     }
     for name, path in paths.items():
         if not path.exists():
@@ -123,6 +123,48 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
 
+    # --- display geometry ---------------------------------------------------------------
+    # Every property is stripped: the map needs only a feature id it can hand to
+    # setFeatureState, and that id is the UAT index the model already speaks. Names and
+    # figures are looked up from attributes.json, so nothing is duplicated into the
+    # geometry payload — which is what keeps it under a megabyte gzipped.
+    display_path = RAW_DIR / "uat_display.geojson"
+    if not display_path.exists():
+        raise SystemExit(f"Missing {display_path} — run pipeline.fetch")
+    display = json.loads(display_path.read_text(encoding="utf-8"))
+
+    lean_features = []
+    missing_geometry = []
+    for feature in display["features"]:
+        siruta = str(feature["properties"]["natcode"]).strip().lstrip("0") or "0"
+        idx = index_of.get(siruta)
+        if idx is None:
+            missing_geometry.append(siruta)
+            continue
+        lean_features.append(
+            {"type": "Feature", "id": idx, "properties": {}, "geometry": feature["geometry"]}
+        )
+
+    report.add(
+        Check(
+            "display_geometry_join",
+            not missing_geometry,
+            f"{len(lean_features)} display polygons keyed to the model index; "
+            f"{len(missing_geometry)} could not be matched",
+            fatal=bool(missing_geometry),
+            rows=[{"siruta": s} for s in missing_geometry[:25]],
+        )
+    )
+
+    lean_features.sort(key=lambda f: f["id"])
+    (WEB_DATA_DIR / "uats.geojson").write_text(
+        json.dumps(
+            {"type": "FeatureCollection", "features": lean_features},
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
     # --- adjacency --------------------------------------------------------------------
     usable = adjacency[adjacency["traversable"]]
     a_idx = np.array([index_of[s] for s in usable["a_siruta"]], dtype=np.uint16)
@@ -174,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     sizes = {
         p.name: p.stat().st_size
         for p in sorted(WEB_DATA_DIR.glob("*"))
-        if p.suffix in {".bin", ".json"}
+        if p.suffix in {".bin", ".json", ".geojson"}
     }
     total = sum(sizes.values())
     report.add(

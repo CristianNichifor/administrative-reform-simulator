@@ -134,6 +134,38 @@ def fetch_boundary_lines(force: bool = False) -> Path:
     return out
 
 
+def fetch_display_geometry(force: bool = False) -> Path:
+    """Simplified UAT polygons in WGS84, for drawing rather than measuring."""
+    out = RAW_DIR / "uat_display.geojson"
+    print(f"[display geometry] {out.name}")
+    if _skip(out, force):
+        return out
+
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": sources.WFS_LAU_SIMPLIFIED_TYPENAME,
+        "outputFormat": "application/json",
+        # WGS84 here, not Stereo 70: this layer is drawn by MapLibre, never measured.
+        "srsName": "urn:ogc:def:crs:EPSG::4326",
+    }
+    r = requests.get(
+        sources.WFS_BASE, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    payload = r.json()
+
+    n = len(payload.get("features", []))
+    if n != EXPECTED_UAT_COUNT:
+        raise SystemExit(f"  FATAL: display layer has {n} features, expected {EXPECTED_UAT_COUNT}")
+
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _sidecar(out, sources.BOUNDARIES, feature_count=n, srs_requested="EPSG:4326")
+    print(f"  {n} features, {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
 def fetch_localities(force: bool = False) -> Path:
     """SIRUTA locality points, from which UAT seats are resolved."""
     out = RAW_DIR / "localities.geojson"
@@ -369,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
 
     fetch_boundaries(args.force)
     fetch_boundary_lines(args.force)
+    fetch_display_geometry(args.force)
     fetch_localities(args.force)
     fetch_attributes(args.force)
     fetch_finance(args.force)

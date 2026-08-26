@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reformă administrativă — România</title>
+    <meta
+      name="description"
+      content="Simulator de consolidare administrativă pentru cele 3.186 de UAT-uri ale României. Instrument de analiză pentru dezbatere publică."
+    />
+  </head>
+  <body>
+    <div id="map" aria-label="Hartă"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <h1 data-i18n="title"></h1>
+        <p data-i18n="subtitle"></p>
+      </div>
+      <div class="topbar-actions">
+        <button id="methodology-btn" class="ghost" data-i18n="methodology"></button>
+        <div class="lang" role="group" aria-label="Language">
+          <button data-lang="ro">RO</button>
+          <button data-lang="en">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="summary" id="summary" aria-live="polite"></section>
+
+    <aside class="controls" id="controls">
+      <div class="controls-head">
+        <h2 data-i18n="parameters"></h2>
+        <button id="reset-btn" class="ghost small" data-i18n="reset"></button>
+      </div>
+      <div id="sliders"></div>
+      <button id="copy-link" class="ghost small wide" data-i18n="copyLink"></button>
+    </aside>
+
+    <aside class="detail" id="detail" hidden></aside>
+
+    <div class="legend" id="legend"></div>
+
+    <footer class="disclaimer">
+      <strong data-i18n="disclaimer"></strong>
+      <span class="sources" id="sources"></span>
+    </footer>
+
+    <dialog id="methodology" class="modal"></dialog>
+
+    <div class="loading" id="loading"><span data-i18n="loading"></span></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -28,7 +28,7 @@ import geopandas as gpd
 import pandas as pd
 
 from pipeline.build_geometry import Check, Report, normalise_siruta, write_report
-from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DATA_DIR
+from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR
 from pipeline.sources import EXPENSE_TYPES, FINANCE_YEAR
 
 # Romanian local budgets ran to roughly 160 bn RON of expenditure in 2024. A total far
@@ -245,8 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(report.failed)} fatal check(s) failed. No output written.")
         return 1
 
-    WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    out = WEB_DATA_DIR / "finance.parquet"
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    out = PROCESSED_DIR / "finance.parquet"
     merged[
         [
             "siruta",

@@ -48,6 +48,17 @@ BOUNDARIES = Source(
 
 WFS_LAU_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_polygon"
 
+# Display geometry. The full-resolution boundaries are 119 MB and exist for area
+# calculations, not for drawing; this pre-simplified layer is 3.9 MB (0.9 MB gzipped) and
+# is what the map renders.
+#
+# Preferred over simplifying ourselves because it is topologically consistent: running
+# shapely's simplify() over 3,186 independent polygons tears shared borders apart, leaving
+# visible slivers and gaps between neighbouring communes on a choropleth. Preferred over
+# PMTiles for v1 because it needs no tippecanoe in the build, and at under a megabyte
+# gzipped the streaming a tileset buys is not yet worth the toolchain.
+WFS_LAU_SIMPLIFIED_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_simplified_polygon"
+
 
 # --- Shared boundaries (adjacency) -------------------------------------------------------
 # The brief specifies deriving adjacency via Queen contiguity and then extracting each

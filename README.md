@@ -11,8 +11,11 @@ recomputes immediately.
 
 ## Status
 
-Early. The data pipeline is being built. The frontend has not been started, deliberately —
-see [Build order](#build-order).
+Working end to end. The pipeline builds every data layer, the model runs in both Python and
+TypeScript with verified parity, and the app renders Romania with live sliders.
+
+At the default settings: **3,186 UATs collapse to 682 regions (78.6%)**, recomputed in about
+15 ms — comfortably inside the 150 ms budget.
 
 ## Two constraints that shape everything
 
@@ -64,7 +67,8 @@ are verified before any frontend work begins.
 - [x] `reference_model.py` — Python implementation of the algorithm
 - [x] `export.py` — typed-array payload for the browser
 - [x] TypeScript port + parity tests
-- [ ] Frontend
+- [x] Frontend — MapLibre map, model in a Web Worker, RO/EN, deep-linkable scenarios
+- [ ] METHODOLOGY.md written out in full, RO + EN
 
 ## Determinism and how to check it
 

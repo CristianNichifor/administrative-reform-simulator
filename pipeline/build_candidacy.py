@@ -45,7 +45,7 @@ from pipeline.constants import (
     TIER_POPULATION,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA, EXPECTED_CAPITAL_COUNT
-from pipeline.paths import PROCESSED_DIR, REPORTS_DIR, WEB_DATA_DIR
+from pipeline.paths import PROCESSED_DIR, REPORTS_DIR
 
 # Overlap fractions below this are dropped entirely. The brief stores every UAT with
 # overlap_fraction > 0, but quantising to 2 decimals turns everything under 0.005 into 0.00,
@@ -302,8 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"See {REPORTS_DIR / 'candidacy.md'}")
         return 1
 
-    WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    out = WEB_DATA_DIR / "candidacy.parquet"
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    out = PROCESSED_DIR / "candidacy.parquet"
     packed = grid.astype(
         {
             "radius_m": "uint16",

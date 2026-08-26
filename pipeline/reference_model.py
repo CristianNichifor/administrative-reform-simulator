@@ -53,7 +53,7 @@ from pipeline.constants import (
     TIER_PROMOTED,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
-from pipeline.paths import PROCESSED_DIR, WEB_DATA_DIR
+from pipeline.paths import PROCESSED_DIR
 
 
 @dataclass(frozen=True)
@@ -114,8 +114,8 @@ def load_data() -> Data:
     uat_path = PROCESSED_DIR / "uat_geometry.gpkg"
     seat_path = PROCESSED_DIR / "uat_seats.gpkg"
     adj_path = PROCESSED_DIR / "adjacency.parquet"
-    cand_path = WEB_DATA_DIR / "candidacy.parquet"
-    fin_path = WEB_DATA_DIR / "finance.parquet"
+    cand_path = PROCESSED_DIR / "candidacy.parquet"
+    fin_path = PROCESSED_DIR / "finance.parquet"
     for path, cmd in (
         (uat_path, "build_geometry"),
         (seat_path, "build_seats"),

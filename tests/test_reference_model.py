@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.paths import PROCESSED_DIR, WEB_DATA_DIR
+from pipeline.paths import PROCESSED_DIR
 from pipeline.reference_model import Params, load_data, run
 
 REQUIRED = [
     PROCESSED_DIR / "uat_geometry.gpkg",
     PROCESSED_DIR / "uat_seats.gpkg",
     PROCESSED_DIR / "adjacency.parquet",
-    WEB_DATA_DIR / "candidacy.parquet",
-    WEB_DATA_DIR / "finance.parquet",
+    PROCESSED_DIR / "candidacy.parquet",
+    PROCESSED_DIR / "finance.parquet",
 ]
 
 pytestmark = pytest.mark.skipif(
