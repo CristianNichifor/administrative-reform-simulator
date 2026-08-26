@@ -1,0 +1,35 @@
+# --- Data ---
+# Raw downloads and build artefacts are reproducible from the pipeline.
+# Only web/public/data/ is committed (see README size budget).
+data/raw/
+data/processed/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+*.egg-info/
+
+# --- Node ---
+node_modules/
+web/dist/
+.vite/
+*.tsbuildinfo
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Env ---
+.env
+.env.local
+.env.*.local

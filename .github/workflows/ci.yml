@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Determinism is a project requirement, so pin the hash seed in CI too. A test that
+# only passes under a particular PYTHONHASHSEED is a bug we want to see, not tolerate.
+env:
+  PYTHONHASHSEED: "0"
+
+jobs:
+  pipeline:
+    name: pipeline (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint
+        run: uv run ruff check pipeline tests
+
+      - name: Format check
+        run: uv run ruff format --check pipeline tests
+
+      - name: Tests
+        run: uv run pytest -v
+
+  web:
+    name: web (lint + tests)
+    runs-on: ubuntu-latest
+    # The frontend is deliberately not scaffolded until the adjacency graph and candidacy
+    # grid are verified. Skip rather than fail until web/package.json exists.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether web is scaffolded
+        id: check
+        run: |
+          if [ -f web/package.json ]; then
+            echo "scaffolded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "scaffolded=false" >> "$GITHUB_OUTPUT"
+            echo "web/ not scaffolded yet — skipping." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.scaffolded == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        if: steps.check.outputs.scaffolded == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Lint
+        if: steps.check.outputs.scaffolded == 'true'
+        working-directory: web
+        run: npm run lint
+
+      - name: Typecheck
+        if: steps.check.outputs.scaffolded == 'true'
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Tests
+        if: steps.check.outputs.scaffolded == 'true'
+        working-directory: web
+        run: npm test
