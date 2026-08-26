@@ -38,6 +38,8 @@ export interface Params {
   minOverlap: number;
   /** Orphan-tier population floor. Zero disables the tier. */
   pOrphan: number;
+  /** Minimum population a resulting unit should reach. Zero disables the step. */
+  pTarget: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -48,6 +50,7 @@ export const DEFAULT_PARAMS: Params = {
   rSepM: 15_000,
   minOverlap: 0.1,
   pOrphan: 5_000,
+  pTarget: 0,
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */
@@ -112,7 +115,31 @@ export interface ModelData {
   absorbers: Uint16Array;
 }
 
+/**
+ * Why each UAT ended up where it did.
+ *
+ * Recorded by the model as it runs, because that is the only place the information exists:
+ * once the assignment is flattened to "this commune is in that region", the rule that put
+ * it there is gone. A map that cannot explain itself is not disputable, which is the whole
+ * premise of the tool.
+ */
+export const REASON = {
+  CENTRE_CAPITAL: 0,
+  CENTRE_THRESHOLD: 1,
+  CENTRE_PROMOTED: 2,
+  ABSORBED_OVERLAP: 3,
+  ABSORBED_SEAT: 4,
+  ORPHAN_SEAT: 5,
+  ORPHAN_MEMBER: 6,
+  UNCHANGED: 7,
+  TARGET_MERGED: 8,
+} as const;
+
 export interface ModelResult {
+  /** One `REASON` code per UAT. */
+  reasonOf: Uint8Array;
+  /** Overlap percentage with the absorbing centre's radius, where that is the reason. */
+  overlapOf: Uint8Array;
   /** Region absorber index for each UAT index. */
   regionOf: Uint16Array;
   /** Tier per seed index, or -1 where the UAT is not a seed. */
@@ -121,6 +148,8 @@ export interface ModelResult {
   seeds: number;
   orphanRegions: number;
   unassigned: number;
+  /** Units still under the target because they have no same-county neighbour left. */
+  belowTarget: number;
   savingsAdminRon: number;
   savingsOperatingRon: number;
   underSeededCounties: string[];

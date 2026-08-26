@@ -275,6 +275,82 @@ button {
   color: var(--muted);
 }
 
+.layers-block {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.layers-block h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.layer-row input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.layer-row .swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.layer-row .swatch.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.layer-row .note {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.why {
+  margin: 10px 0 12px;
+  padding: 9px 10px;
+  background: rgba(78, 163, 200, 0.08);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.why h4 {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.why p {
+  margin: 0 0 6px;
+}
+
+.why p:last-child {
+  margin-bottom: 0;
+}
+
+.why .county-rule {
+  color: var(--muted);
+}
+
 /* --- detail panel ------------------------------------------------------------------- */
 .detail {
   position: absolute;
@@ -366,22 +442,15 @@ button {
 }
 
 /* --- legend ------------------------------------------------------------------------- */
+/* Lives inside the controls tray. On the right it sat under the detail panel, which is
+   open whenever a reader is actually studying a unit — exactly when the legend is wanted. */
 .legend {
-  position: absolute;
-  right: 16px;
-  bottom: 76px;
-  padding: 10px 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  backdrop-filter: blur(6px);
-  z-index: 3;
   font-size: 11.5px;
 }
 
 .legend h4 {
   margin: 0 0 6px;
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
@@ -495,8 +564,7 @@ button {
   }
 
   .controls,
-  .detail,
-  .legend {
+  .detail {
     position: absolute;
     left: 8px;
     right: 8px;

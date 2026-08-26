@@ -33,6 +33,8 @@ import pandas as pd
 
 from pipeline.build_geometry import Check, Report, write_report
 from pipeline.constants import (
+    CRS_STEREO70,
+    CRS_WGS84,
     OVERLAP_QUANTISATION_DECIMALS,
     RADIUS_GRID_M,
 )
@@ -42,6 +44,12 @@ from pipeline.paths import DOCS_DIR, PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DA
 # Overlap is stored as a percentage in a single byte. The pipeline already quantises to two
 # decimals, so this loses nothing that was ever there.
 OVERLAP_SCALE = 100
+
+# Road classes shown as map context. Deliberately narrower than the set the model tests
+# against: every class down to `unclassified` matters for whether a border is crossed, but
+# drawing them all would be an unreadable smear at national zoom.
+ROAD_CONTEXT_CLASSES = ("motorway", "trunk", "primary")
+ROAD_SIMPLIFY_M = 300
 
 
 def load() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -165,6 +173,134 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
 
+    # --- context layers ----------------------------------------------------------------
+    # None of these feed the model. They exist so a reader can see the constraints it works
+    # under — above all the county lines, which no region may ever cross.
+    #
+    # Coordinates are rounded to five decimals, about a metre. These layers are drawn, never
+    # measured, and full float precision roughly doubles the file for detail no screen can
+    # resolve.
+    # Roads are drawn at national zoom, so ~11 m precision is ample and halves the file.
+    def round_coords(node, places: int = 5):
+        if isinstance(node, list):
+            return [round_coords(v, places) for v in node]
+        if isinstance(node, float):
+            return round(node, places)
+        return node
+
+    def write_context(raw_name: str, out_name: str, keep: tuple[str, ...] = ()) -> int:
+        raw_path = RAW_DIR / raw_name
+        if not raw_path.exists():
+            raise SystemExit(f"Missing {raw_path} — run pipeline.fetch")
+        payload = json.loads(raw_path.read_text(encoding="utf-8"))
+        features = [
+            {
+                "type": "Feature",
+                "properties": {k: f["properties"].get(k) for k in keep},
+                "geometry": {
+                    "type": f["geometry"]["type"],
+                    "coordinates": round_coords(f["geometry"]["coordinates"]),
+                },
+            }
+            for f in payload["features"]
+        ]
+        (WEB_DATA_DIR / out_name).write_text(
+            json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        return len(features)
+
+    n_counties = write_context(
+        "county_lines.geojson", "counties.geojson", ("leftcounty", "rightcounty")
+    )
+    n_regions = write_context(
+        "region_lines.geojson", "regions.geojson", ("leftregion", "rightregion")
+    )
+
+    # Seat points, keyed to the model index so the map can label them from attributes.json.
+    seat_wgs = seats.to_crs(CRS_WGS84)
+    seat_features = [
+        {
+            "type": "Feature",
+            "id": index_of[siruta],
+            "properties": {"capital": bool(siruta in COUNTY_CAPITAL_SIRUTA)},
+            "geometry": {"type": "Point", "coordinates": [round(g.x, 5), round(g.y, 5)]},
+        }
+        for siruta, g in zip(seats.index, seat_wgs.geometry, strict=True)
+    ]
+    seat_features.sort(key=lambda f: f["id"])
+    (WEB_DATA_DIR / "seats.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": seat_features}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    # Major roads, as context for the connectivity rule. Written as its own file because
+    # the app loads it only when the reader turns the layer on: at 1.5 MB gzipped it is the
+    # largest single artefact, and most visits never need it.
+    #
+    # Simplified hard and rounded to about 11 m. The model did its road test at full
+    # resolution against the untouched extract; this copy is only ever drawn.
+    roads_out = WEB_DATA_DIR / "roads.geojson"
+    pbf = RAW_DIR / "romania-latest.osm.pbf"
+    if pbf.exists():
+        classes = ",".join(f"'{c}'" for c in ROAD_CONTEXT_CLASSES)
+        roads = gpd.read_file(
+            pbf,
+            layer="lines",
+            columns=["highway"],
+            where=f"highway IN ({classes})",
+            engine="pyogrio",
+        )
+        roads = roads.set_crs(CRS_WGS84).to_crs(CRS_STEREO70)
+        roads = roads.dissolve(by="highway", as_index=False)
+        roads["geometry"] = roads.geometry.simplify(ROAD_SIMPLIFY_M)
+        roads = roads.to_crs(CRS_WGS84)
+        road_features = [
+            {
+                "type": "Feature",
+                "properties": {"highway": r.highway},
+                "geometry": {
+                    "type": r.geometry.geom_type,
+                    "coordinates": round_coords(r.geometry.__geo_interface__["coordinates"]),
+                },
+            }
+            for r in roads.itertuples()
+        ]
+        roads_out.write_text(
+            json.dumps(
+                {"type": "FeatureCollection", "features": road_features}, separators=(",", ":")
+            ),
+            encoding="utf-8",
+        )
+        report.add(
+            Check(
+                "road_context_layer",
+                True,
+                f"{len(road_features)} road classes "
+                f"({', '.join(ROAD_CONTEXT_CLASSES)}), "
+                f"{roads_out.stat().st_size / 1_048_576:.2f} MB, loaded on demand only",
+            )
+        )
+    elif not roads_out.exists():
+        report.add(
+            Check(
+                "road_context_layer",
+                True,
+                "skipped — no OSM extract present (run fetch --with-roads); the roads "
+                "toggle will be unavailable",
+            )
+        )
+
+    report.add(
+        Check(
+            "context_layers",
+            len(seat_features) == len(order),
+            f"{n_counties} county boundary segments, {n_regions} development-region "
+            f"segments, {len(seat_features)} seat points",
+            fatal=len(seat_features) != len(order),
+        )
+    )
+
     # --- adjacency --------------------------------------------------------------------
     usable = adjacency[adjacency["traversable"]]
     a_idx = np.array([index_of[s] for s in usable["a_siruta"]], dtype=np.uint16)
@@ -243,21 +379,34 @@ def main(argv: list[str] | None = None) -> int:
             methodology.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
+    # Two budgets, because they answer different questions. The eager payload is what a
+    # reader waits for before the map appears; roads.geojson is fetched only if the layer is
+    # switched on, so counting it against first paint would be misleading.
+    LAZY = {"roads.geojson"}
     sizes = {
         p.name: p.stat().st_size
         for p in sorted(WEB_DATA_DIR.glob("*"))
         if p.suffix in {".bin", ".json", ".geojson"}
     }
-    total = sum(sizes.values())
+    eager = sum(v for k, v in sizes.items() if k not in LAZY)
+    lazy = sum(v for k, v in sizes.items() if k in LAZY)
     report.add(
         Check(
-            "payload_size",
-            total < 8 * 1_048_576,
-            ", ".join(f"{k}={v / 1024:.0f}KB" for k, v in sizes.items())
-            + f" — total {total / 1_048_576:.2f} MB",
-            fatal=total >= 8 * 1_048_576,
+            "payload_size_eager",
+            eager < 8 * 1_048_576,
+            ", ".join(f"{k}={v / 1024:.0f}KB" for k, v in sizes.items() if k not in LAZY)
+            + f" — {eager / 1_048_576:.2f} MB before first paint",
+            fatal=eager >= 8 * 1_048_576,
         )
     )
+    report.add(
+        Check(
+            "payload_size_lazy",
+            True,
+            f"{lazy / 1_048_576:.2f} MB fetched only when a layer is switched on",
+        )
+    )
+    total = eager + lazy
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     write_report(report, REPORTS_DIR / "export.md", REPORTS_DIR / "export.json")

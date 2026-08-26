@@ -42,6 +42,7 @@ from pipeline.constants import (
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
+    P_TARGET_DEFAULT,
     R_CAP_DEFAULT_M,
     R_SEP_DEFAULT_M,
     R_SEP_RELAXATION_FACTOR,
@@ -65,6 +66,7 @@ class Params:
     r_sep_m: int = R_SEP_DEFAULT_M
     min_overlap: float = MIN_OVERLAP_DEFAULT
     p_orphan: int = P_ORPHAN_DEFAULT
+    p_target: int = P_TARGET_DEFAULT
 
     def snapped(self) -> Params:
         """Radii must land on the precomputed grid; the UI slider snaps to it too."""
@@ -76,6 +78,7 @@ class Params:
             r_sep_m=self.r_sep_m,
             min_overlap=self.min_overlap,
             p_orphan=self.p_orphan,
+            p_target=self.p_target,
         )
 
 
@@ -402,6 +405,73 @@ def orphan_tier(data: Data, params: Params, result: Result) -> None:
         result.orphan_regions.add(seat)
 
 
+def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
+    """Merge resulting units that are still below the target population.
+
+    The gravitational rules answer "who can reach whom". This answers a different question:
+    "is the result large enough to be worth creating". A unit of 4,000 people still needs a
+    mayor, a secretary and a budget, so a scenario can leave you with a smaller map that has
+    not actually fixed anything.
+
+    A unit below the target absorbs the smallest neighbouring unit it can, repeatedly, until
+    it reaches the target or runs out of neighbours **in its own county**. The larger of the
+    two keeps its seat, because that is the administration more likely to have the capacity.
+
+    Units can end below the target legitimately: an isolated commune whose every neighbour
+    is already large has nowhere to go. They are reported rather than forced.
+    """
+    if params.p_target <= 0:
+        return
+
+    def region_population(absorber: str) -> int:
+        return sum(data.population[m] for m in result.members[absorber])
+
+    changed = True
+    while changed:
+        changed = False
+        below = sorted(
+            (a for a in result.members if region_population(a) < params.p_target),
+            key=lambda a: (region_population(a), a),
+        )
+        for absorber in below:
+            if absorber not in result.members:
+                continue
+            if region_population(absorber) >= params.p_target:
+                continue
+
+            # Neighbouring units reachable from any member, in the same county.
+            partners: set[str] = set()
+            for member in result.members[absorber]:
+                for neighbour in data.neighbours.get(member, ()):
+                    other = result.region_of[neighbour]
+                    if other == absorber:
+                        continue
+                    if data.county[neighbour] != data.county[member]:
+                        continue
+                    partners.add(other)
+
+            if not partners:
+                continue
+
+            # Smallest first, so a small unit pairs with another small one rather than
+            # being swallowed by the nearest city.
+            partner = min(partners, key=lambda o: (region_population(o), o))
+
+            a_pop, b_pop = region_population(absorber), region_population(partner)
+            keep, drop = (
+                (absorber, partner)
+                if (a_pop, absorber) >= (b_pop, partner)
+                else (partner, absorber)
+            )
+
+            merged = result.members.pop(drop)
+            result.members[keep].extend(merged)
+            for m in merged:
+                result.region_of[m] = keep
+            result.orphan_regions.discard(drop)
+            changed = True
+
+
 def clark_evans(data: Data, seeds: list[str], county_uats: list[str]) -> float | None:
     """Mean nearest-neighbour distance over what random placement would give.
 
@@ -476,9 +546,20 @@ def summarise(data: Data, params: Params, result: Result) -> dict:
             }
         )
 
+    below_target = (
+        sum(
+            1
+            for members in result.members.values()
+            if sum(data.population[m] for m in members) < params.p_target
+        )
+        if params.p_target > 0
+        else 0
+    )
+
     return {
         "params": params,
         "regions": len(regions),
+        "below_target": below_target,
         "uats": total_uats,
         "reduction_pct": 100 * (1 - len(regions) / total_uats),
         "seeds": len(result.seeds),
@@ -498,6 +579,7 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
     orphan_tier(data, params, result)
     # Belt and braces: whatever route the UAT took, it ends up in exactly one region.
     _keep_unclaimed_as_themselves(data, result)
+    consolidate_to_target(data, params, result)
     return result, summarise(data, params, result)
 
 
@@ -510,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--r-sep", type=int, default=R_SEP_DEFAULT_M)
     ap.add_argument("--min-overlap", type=float, default=MIN_OVERLAP_DEFAULT)
     ap.add_argument("--p-orphan", type=int, default=P_ORPHAN_DEFAULT)
+    ap.add_argument("--p-target", type=int, default=P_TARGET_DEFAULT)
     args = ap.parse_args(argv)
 
     print("Loading precomputed layers...")
@@ -523,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
         r_sep_m=args.r_sep,
         min_overlap=args.min_overlap,
         p_orphan=args.p_orphan,
+        p_target=args.p_target,
     ).snapped()
 
     print(
@@ -540,6 +624,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Seeds              {summary['seeds']:,}")
     print(f"  Orphan-tier        {summary['orphan_regions']:,}")
     print(f"  Unassigned         {summary['unassigned']:,}")
+    if params.p_target > 0:
+        print(
+            f"  Below target       {summary['below_target']:,} of {summary['regions']:,}"
+            f" (target {params.p_target:,})"
+        )
     print(
         f"  Savings (admin)    {summary['savings_admin_ron'] / 1e9:.2f} bn RON/year   <- headline"
     )

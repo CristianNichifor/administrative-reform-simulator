@@ -166,6 +166,42 @@ def fetch_display_geometry(force: bool = False) -> Path:
     return out
 
 
+def _fetch_wfs_geojson(typename: str, out: Path, label: str, force: bool) -> Path:
+    """Fetch a WFS layer as WGS84 GeoJSON. Used for the map's context layers."""
+    print(f"[{label}] {out.name}")
+    if _skip(out, force):
+        return out
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": typename,
+        "outputFormat": "application/json",
+        "srsName": "urn:ogc:def:crs:EPSG::4326",
+    }
+    r = requests.get(
+        sources.WFS_BASE, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    payload = r.json()
+    n = len(payload.get("features", []))
+    if n == 0:
+        raise SystemExit(f"  FATAL: {typename} returned no features")
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    print(f"  {n} features, {out.stat().st_size / 1024:.0f} KB")
+    return out
+
+
+def fetch_boundary_context(force: bool = False) -> None:
+    """County and development-region boundaries, for map context only."""
+    _fetch_wfs_geojson(
+        sources.WFS_COUNTY_LINE_TYPENAME, RAW_DIR / "county_lines.geojson", "counties", force
+    )
+    _fetch_wfs_geojson(
+        sources.WFS_REGION_LINE_TYPENAME, RAW_DIR / "region_lines.geojson", "regions", force
+    )
+
+
 def fetch_localities(force: bool = False) -> Path:
     """SIRUTA locality points, from which UAT seats are resolved."""
     out = RAW_DIR / "localities.geojson"
@@ -402,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     fetch_boundaries(args.force)
     fetch_boundary_lines(args.force)
     fetch_display_geometry(args.force)
+    fetch_boundary_context(args.force)
     fetch_localities(args.force)
     fetch_attributes(args.force)
     fetch_finance(args.force)

@@ -19,6 +19,7 @@ import {
   TIER_COUNTY_CAPITAL,
   TIER_POPULATION,
   TIER_PROMOTED,
+  REASON,
   type ModelData,
   type ModelResult,
   type Params,
@@ -180,6 +181,8 @@ function accrete(
   params: Params,
   tierOf: Int8Array,
   regionOf: Uint16Array,
+  reasonOf: Uint8Array,
+  overlapOf: Uint8Array,
 ): void {
   const seeds: number[] = [];
   for (let i = 0; i < data.uatCount; i += 1) if (tierOf[i] !== -1) seeds.push(i);
@@ -218,6 +221,12 @@ function accrete(
     }
 
     regionOf[absorber] = absorber;
+    reasonOf[absorber] =
+      tier === TIER_COUNTY_CAPITAL
+        ? REASON.CENTRE_CAPITAL
+        : tier === TIER_POPULATION
+          ? REASON.CENTRE_THRESHOLD
+          : REASON.CENTRE_PROMOTED;
     const county = data.countyOf[absorber]!;
 
     let frontier: number[] = [];
@@ -252,6 +261,15 @@ function accrete(
         // frontier only because a member of *this* region borders it, so a region can
         // never leapfrog a UAT it did not absorb.
         regionOf[u] = absorber;
+        // Which of the two candidacy tests admitted it. The overlap rule is the ordinary
+        // case; the seat rule is what lets a commune whose territory barely grazes the
+        // radius still join, because its village is inside.
+        const pct = Math.round(eligible[u]! * 100);
+        overlapOf[u] = pct;
+        reasonOf[u] =
+          pct >= Math.round(params.minOverlap * 100)
+            ? REASON.ABSORBED_OVERLAP
+            : REASON.ABSORBED_SEAT;
         for (let e = data.neighbourStart[u]!; e < data.neighbourStart[u + 1]!; e += 1) {
           const nb = data.neighbours[e]!;
           if (regionOf[nb] === NO_REGION) nextWave.add(nb);
@@ -267,6 +285,7 @@ function orphanTier(
   params: Params,
   regionOf: Uint16Array,
   orphanSeats: Set<number>,
+  reasonOf: Uint8Array,
 ): void {
   if (params.pOrphan <= 0) return;
 
@@ -345,19 +364,129 @@ function orphanTier(
         seat = m;
       }
     }
-    for (const m of group) regionOf[m] = seat;
+    for (const m of group) {
+      regionOf[m] = seat;
+      reasonOf[m] = m === seat ? REASON.ORPHAN_SEAT : REASON.ORPHAN_MEMBER;
+    }
     orphanSeats.add(seat);
   }
 }
 
+/**
+ * Merge resulting units still below the target population.
+ *
+ * The gravitational rules answer "who can reach whom". This answers a different question —
+ * "is the result large enough to be worth creating" — so it runs as its own step rather
+ * than being folded into the radii, where it would quietly change what a radius means.
+ *
+ * A unit below target absorbs the smallest neighbouring unit it can, repeatedly, until it
+ * reaches the target or runs out of neighbours **in its own county**. The larger of the two
+ * keeps its seat. Units can legitimately finish below target when every neighbour they have
+ * lies across a county line; those are reported, never forced.
+ */
+function consolidateToTarget(
+  data: ModelData,
+  params: Params,
+  regionOf: Uint16Array,
+  orphanSeats: Set<number>,
+  reasonOf: Uint8Array,
+): number {
+  const members = new Map<number, number[]>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    const region = regionOf[i]!;
+    let list = members.get(region);
+    if (!list) {
+      list = [];
+      members.set(region, list);
+    }
+    list.push(i);
+  }
+
+  if (params.pTarget > 0) {
+    const populationOf = (region: number): number => {
+      let total = 0;
+      for (const m of members.get(region)!) total += data.population[m]!;
+      return total;
+    };
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const below = [...members.keys()]
+        .filter((r) => populationOf(r) < params.pTarget)
+        .sort((a, b) => {
+          const d = populationOf(a) - populationOf(b);
+          return d !== 0 ? d : a - b;
+        });
+
+      for (const region of below) {
+        if (!members.has(region)) continue;
+        if (populationOf(region) >= params.pTarget) continue;
+
+        const partners = new Set<number>();
+        for (const member of members.get(region)!) {
+          for (let e = data.neighbourStart[member]!; e < data.neighbourStart[member + 1]!; e += 1) {
+            const nb = data.neighbours[e]!;
+            const other = regionOf[nb]!;
+            if (other === region) continue;
+            if (data.countyOf[nb] !== data.countyOf[member]) continue;
+            partners.add(other);
+          }
+        }
+        if (partners.size === 0) continue;
+
+        // Smallest first, so a small unit pairs with another small one rather than being
+        // swallowed by the nearest city.
+        let partner = -1;
+        for (const candidate of [...partners].sort((a, b) => a - b)) {
+          if (
+            partner === -1 ||
+            populationOf(candidate) < populationOf(partner)
+          ) {
+            partner = candidate;
+          }
+        }
+
+        const aPop = populationOf(region);
+        const bPop = populationOf(partner);
+        const keep = aPop > bPop || (aPop === bPop && region > partner) ? region : partner;
+        const drop = keep === region ? partner : region;
+
+        const moved = members.get(drop)!;
+        members.delete(drop);
+        const target = members.get(keep)!;
+        for (const m of moved) {
+          target.push(m);
+          regionOf[m] = keep;
+          reasonOf[m] = REASON.TARGET_MERGED;
+        }
+        orphanSeats.delete(drop);
+        changed = true;
+      }
+    }
+  }
+
+  let belowTarget = 0;
+  if (params.pTarget > 0) {
+    for (const group of members.values()) {
+      let total = 0;
+      for (const m of group) total += data.population[m]!;
+      if (total < params.pTarget) belowTarget += 1;
+    }
+  }
+  return belowTarget;
+}
+
 export function runModel(data: ModelData, params: Params): ModelResult {
   const regionOf = new Uint16Array(data.uatCount).fill(NO_REGION);
+  const reasonOf = new Uint8Array(data.uatCount).fill(REASON.UNCHANGED);
+  const overlapOf = new Uint8Array(data.uatCount);
   const { tierOf, underSeeded } = selectSeeds(data, params);
 
-  accrete(data, params, tierOf, regionOf);
+  accrete(data, params, tierOf, regionOf, reasonOf, overlapOf);
 
   const orphanSeats = new Set<number>();
-  orphanTier(data, params, regionOf, orphanSeats);
+  orphanTier(data, params, regionOf, orphanSeats, reasonOf);
 
   // Whatever no absorber reached and no cluster took "stays as-is" — a region of one, not
   // a hole in the map.
@@ -370,6 +499,8 @@ export function runModel(data: ModelData, params: Params): ModelResult {
   for (let i = 0; i < data.uatCount; i += 1) {
     if (regionOf[i] === NO_REGION) unassigned += 1;
   }
+
+  const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf);
 
   const regionSeats = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) regionSeats.add(regionOf[i]!);
@@ -391,11 +522,14 @@ export function runModel(data: ModelData, params: Params): ModelResult {
 
   return {
     regionOf,
+    reasonOf,
+    overlapOf,
     tierOf,
     regions: regionSeats.size,
     seeds,
     orphanRegions: orphanSeats.size,
     unassigned,
+    belowTarget,
     savingsAdminRon,
     savingsOperatingRon,
     underSeededCounties: underSeeded,

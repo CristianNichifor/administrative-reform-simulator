@@ -75,6 +75,15 @@ CASES: tuple[Params, ...] = (
         min_overlap=0.05,
         p_orphan=2_500,
     ),
+    # Minimum resulting population, which runs after everything else and is the step most
+    # able to reshape the map, so it is exercised across its range and in combination.
+    Params(p_target=10_000),
+    Params(p_target=20_000),
+    Params(p_target=50_000),
+    Params(p_target=100_000),
+    Params(p_target=50_000, p_orphan=0),
+    Params(p_target=50_000, r_cap_m=30_000, r_town_m=30_000),
+    Params(x=5_000, p_target=25_000, n_min=10),
 )
 
 
@@ -106,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
                 "seeds": summary["seeds"],
                 "orphanRegions": summary["orphan_regions"],
                 "unassigned": summary["unassigned"],
+                "belowTarget": summary["below_target"],
                 # Rounded: the two languages will not agree on the last bits of a float
                 # sum, and disagreeing about a rounding artefact is not a parity failure.
                 "savingsAdminRon": round(summary["savings_admin_ron"], 2),

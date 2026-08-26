@@ -13,12 +13,18 @@ import { STRINGS, detectLang, formatMoney, formatNumber, type Lang, type Strings
 import {
   createMap,
   ABSORBER_COLOUR,
+  CAPITAL_COLOUR,
   COST_RAMP,
+  COUNTY_LINE_COLOUR,
   ORPHAN_COLOUR,
+  REGION_LINE_COLOUR,
+  ROAD_COLOUR,
+  SEAT_COLOUR,
   UNCHANGED_COLOUR,
   regionColour,
+  type Overlay,
 } from './map/map';
-import { DEFAULT_PARAMS, type Params, type ViewMode } from './model/types';
+import { DEFAULT_PARAMS, REASON, type Params, type ViewMode } from './model/types';
 import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
 const DATA_BASE = `${import.meta.env.BASE_URL}data/`;
@@ -73,6 +79,11 @@ const SLIDERS: SliderSpec[] = [
     min: 0, max: 15000, step: 500,
     format: (v, l, s) => (v === 0 ? s.pOrphanOff : formatNumber(v, l)),
   },
+  {
+    key: 'pTarget', labelKey: 'pTarget', helpKey: 'pTargetHelp',
+    min: 0, max: 100000, step: 2500,
+    format: (v, l, s) => (v === 0 ? s.pTargetOff : formatNumber(v, l)),
+  },
 ];
 
 const isRadius = (key: keyof Params): boolean => key === 'rCapM' || key === 'rTownM';
@@ -119,8 +130,44 @@ async function boot(): Promise<void> {
     renderModes();
     renderLegend();
     renderSliders();
+    renderLayers();
     renderSummary();
     renderDetail();
+  };
+
+  const overlayState: Record<Overlay, boolean> = {
+    counties: true,
+    regions: false,
+    seats: false,
+    capitals: true,
+    roads: false,
+  };
+
+  const renderLayers = (): void => {
+    const rows: [Overlay, string, string, boolean, string][] = [
+      ['counties', strings.layerCounties, COUNTY_LINE_COLOUR, false, ''],
+      ['regions', strings.layerRegions, REGION_LINE_COLOUR, false, ''],
+      ['capitals', strings.layerCapitals, CAPITAL_COLOUR, true, ''],
+      ['seats', strings.layerSeats, SEAT_COLOUR, true, ''],
+      ['roads', strings.layerRoads, ROAD_COLOUR, false, strings.layersRoadsNote],
+    ];
+    el('#layers').innerHTML = rows
+      .map(
+        ([key, label, colour, dot, note]) => `
+        <label class="layer-row">
+          <input type="checkbox" data-overlay="${key}" ${overlayState[key] ? 'checked' : ''} />
+          <span class="swatch${dot ? ' dot' : ''}" style="background:${colour}"></span>
+          <span>${label}${note ? ` <span class="note">— ${note}</span>` : ''}</span>
+        </label>`,
+      )
+      .join('');
+    for (const input of document.querySelectorAll<HTMLInputElement>('#layers input')) {
+      input.addEventListener('change', () => {
+        const key = input.dataset.overlay as Overlay;
+        overlayState[key] = input.checked;
+        void mapHandle.setOverlay(key, input.checked);
+      });
+    }
   };
 
   const renderModes = (): void => {
@@ -241,9 +288,60 @@ async function boot(): Promise<void> {
       ),
       stat(formatNumber(latest.seeds, scenario.lang), strings.seeds),
       stat(formatNumber(latest.orphanRegions, scenario.lang), strings.orphanRegions),
+      ...(scenario.params.pTarget > 0
+        ? [
+            stat(
+              formatNumber(latest.belowTarget, scenario.lang),
+              strings.belowTarget,
+              false,
+              strings.belowTargetHelp,
+            ),
+          ]
+        : []),
       `<div class="stat"><span class="recompute">${strings.recomputeTime} ${latest.elapsedMs.toFixed(0)} ms</span>
        <span class="label">${strings.upperBound}: ${formatMoney(latest.savingsOperatingRon, scenario.lang)}</span></div>`,
     ].join('');
+  };
+
+  /** Plain-language reason a commune ended up where it did. */
+  const explain = (index: number): string => {
+    if (!latest || !ready) return '';
+    const reason = latest.reasonOf[index]!;
+    const region = latest.regionOf[index]!;
+    const centre = ready.attributes.name[region]!;
+    const radius =
+      latest.tierOf[region] === 0
+        ? `${scenario.params.rCapM / 1000} km`
+        : `${scenario.params.rTownM / 1000} km`;
+
+    switch (reason) {
+      case REASON.CENTRE_CAPITAL:
+        return strings.whyCapital;
+      case REASON.CENTRE_THRESHOLD:
+        return strings.whyThreshold
+          .replace('{pop}', formatNumber(ready.population[index]!, scenario.lang))
+          .replace('{x}', formatNumber(scenario.params.x, scenario.lang));
+      case REASON.CENTRE_PROMOTED:
+        return strings.whyPromoted.replace('{n}', String(scenario.params.nMin));
+      case REASON.ABSORBED_OVERLAP:
+        return strings.whyAbsorbedOverlap
+          .replace('{centre}', centre)
+          .replace('{pct}', `${latest.overlapOf[index]}%`)
+          .replace('{radius}', radius);
+      case REASON.ABSORBED_SEAT:
+        return strings.whyAbsorbedSeat.replace('{centre}', centre).replace('{radius}', radius);
+      case REASON.ORPHAN_SEAT:
+        return strings.whyOrphanSeat;
+      case REASON.ORPHAN_MEMBER:
+        return strings.whyOrphanMember;
+      case REASON.TARGET_MERGED:
+        return strings.whyTargetMerge.replace(
+          '{target}',
+          formatNumber(scenario.params.pTarget, scenario.lang),
+        );
+      default:
+        return '';
+    }
   };
 
   const renderDetail = (): void => {
@@ -280,6 +378,16 @@ async function boot(): Promise<void> {
           totalPop > 0 ? formatNumber(totalAdmin / totalPop, scenario.lang) : '—'
         } RON</dd>
       </dl>
+      <div class="why">
+        <h4>${strings.whyTitle}</h4>
+        <p>${explain(region)}</p>
+        ${
+          index !== region
+            ? `<p><strong>${ready.attributes.name[index]}:</strong> ${explain(index)}</p>`
+            : ''
+        }
+        <p class="county-rule">${strings.whyCountyRule.replace('{county}', ready.attributes.county[region]!)}</p>
+      </div>
       <ul class="members">
         ${members
           .map(
@@ -349,6 +457,13 @@ async function boot(): Promise<void> {
       costPerResident,
       costBreaks,
     );
+    // The set of absorbing centres changes with every scenario, so the overlay is refreshed
+    // from feature state rather than the layer being rebuilt.
+    const isCentre = new Uint8Array(message.regionOf.length);
+    for (let i = 0; i < message.regionOf.length; i += 1) {
+      if (message.regionOf[i] === i && message.tierOf[i] !== -1) isCentre[i] = 1;
+    }
+    mapHandle.setCentres(isCentre);
     renderSummary();
     renderDetail();
     el<HTMLElement>('#loading').hidden = true;
@@ -392,6 +507,9 @@ async function boot(): Promise<void> {
   });
 
   applyStaticText();
+  for (const [key, visible] of Object.entries(overlayState) as [Overlay, boolean][]) {
+    if (visible) void mapHandle.setOverlay(key, true);
+  }
   mapHandle.setSelected(scenario.selected);
   worker.postMessage({ type: 'init', baseUrl: DATA_BASE });
 }

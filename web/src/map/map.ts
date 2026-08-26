@@ -33,6 +33,16 @@ export const FILL_LAYER = 'uat-fill';
 export const REGION_OUTLINE = 'region-outline';
 export const UAT_OUTLINE = 'uat-outline';
 
+/** Optional context layers, each toggled independently. */
+export const OVERLAYS = ['counties', 'regions', 'seats', 'capitals', 'roads'] as const;
+export type Overlay = (typeof OVERLAYS)[number];
+
+export const COUNTY_LINE_COLOUR = '#f2f4f7';
+export const REGION_LINE_COLOUR = '#7cc4de';
+export const SEAT_COLOUR = '#e6e9ee';
+export const CAPITAL_COLOUR = '#ffd166';
+export const ROAD_COLOUR = '#8fa3b8';
+
 /**
  * Region colours.
  *
@@ -102,6 +112,10 @@ export interface MapHandle {
   ) => void;
   setSelected: (index: number | null) => void;
   onSelect: (handler: (index: number | null) => void) => void;
+  /** Show or hide a context layer. Roads are fetched the first time they are shown. */
+  setOverlay: (overlay: Overlay, visible: boolean) => Promise<void>;
+  /** Highlight the seat points that are absorbing centres in the current scenario. */
+  setCentres: (isCentre: Uint8Array) => void;
 }
 
 export async function createMap(container: HTMLElement, dataBase: string): Promise<MapHandle> {
@@ -201,6 +215,113 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     map.on('sourcedata', onData);
   });
 
+  // --- context layers ----------------------------------------------------------------
+  // County lines matter most: no region may ever cross one, so seeing them explains the
+  // shape of the result more than any other overlay.
+  map.addSource('counties', { type: 'geojson', data: `${dataBase}counties.geojson` });
+  map.addLayer({
+    id: 'counties-line',
+    type: 'line',
+    source: 'counties',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': COUNTY_LINE_COLOUR, 'line-width': 1.2, 'line-opacity': 0.75 },
+  });
+
+  map.addSource('regions', { type: 'geojson', data: `${dataBase}regions.geojson` });
+  map.addLayer({
+    id: 'regions-line',
+    type: 'line',
+    source: 'regions',
+    layout: { visibility: 'none' },
+    paint: {
+      'line-color': REGION_LINE_COLOUR,
+      'line-width': 2.2,
+      'line-opacity': 0.8,
+      'line-dasharray': [3, 2],
+    },
+  });
+
+  map.addSource('seats', { type: 'geojson', data: `${dataBase}seats.geojson` });
+  map.addLayer({
+    id: 'seats-point',
+    type: 'circle',
+    source: 'seats',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.4, 10, 3.5],
+      'circle-color': SEAT_COLOUR,
+      'circle-opacity': 0.75,
+    },
+  });
+
+  // Absorbing centres, drawn from the same source but filtered by feature state, so the
+  // set updates with the scenario without re-uploading any geometry.
+  map.addLayer({
+    id: 'centres-point',
+    type: 'circle',
+    source: 'seats',
+    layout: { visibility: 'none' },
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.2, 10, 7],
+      'circle-color': ['case', ['get', 'capital'], CAPITAL_COLOUR, SEAT_COLOUR],
+      'circle-stroke-color': '#0f1216',
+      'circle-stroke-width': 1.2,
+      'circle-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
+      'circle-stroke-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
+    },
+  });
+
+  const loadedOverlays = new Set<Overlay>();
+
+  const setOverlay = async (overlay: Overlay, visible: boolean): Promise<void> => {
+    if (overlay === 'roads') {
+      // Fetched on first use only: at 4.5 MB it is by far the largest artefact, and most
+      // visits never turn it on.
+      if (visible && !loadedOverlays.has('roads')) {
+        map.addSource('roads', { type: 'geojson', data: `${dataBase}roads.geojson` });
+        map.addLayer(
+          {
+            id: 'roads-line',
+            type: 'line',
+            source: 'roads',
+            paint: {
+              'line-color': ROAD_COLOUR,
+              'line-opacity': 0.55,
+              'line-width': [
+                'match',
+                ['get', 'highway'],
+                'motorway', 1.8,
+                'trunk', 1.3,
+                0.7,
+              ],
+            },
+          },
+          UAT_OUTLINE,
+        );
+        loadedOverlays.add('roads');
+        return;
+      }
+      if (loadedOverlays.has('roads')) {
+        map.setLayoutProperty('roads-line', 'visibility', visible ? 'visible' : 'none');
+      }
+      return;
+    }
+
+    const layerId = {
+      counties: 'counties-line',
+      regions: 'regions-line',
+      seats: 'seats-point',
+      capitals: 'centres-point',
+    }[overlay];
+    map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+  };
+
+  const setCentres = (isCentre: Uint8Array): void => {
+    for (let i = 0; i < isCentre.length; i += 1) {
+      map.setFeatureState({ source: 'seats', id: i }, { centre: isCentre[i] === 1 });
+    }
+  };
+
   let selected: number | null = null;
   const selectHandlers: ((index: number | null) => void)[] = [];
 
@@ -265,5 +386,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     applyAssignment,
     setSelected,
     onSelect: (handler) => selectHandlers.push(handler),
+    setOverlay,
+    setCentres,
   };
 }

@@ -77,6 +77,20 @@ different colour for that reason. The largest member becomes the seat.
 Without this step the model leaves over a thousand tiny communes untouched, which defeats
 the purpose. Anything still unmerged after it simply stays as it is today.
 
+**Step 5 — minimum resulting size.**
+Optional, and off by default. A unit still below the population target absorbs the smallest
+neighbouring unit it can, repeatedly, until it reaches the target or runs out of neighbours
+**in its own county**. The larger of the two keeps its seat.
+
+This answers a different question from everything above it. The gravitational rules ask
+"who can reach whom"; this asks "is the result large enough to be worth creating". A unit of
+4,000 people still needs a mayor, a secretary and a budget, so a scenario can shrink the map
+without fixing anything.
+
+Some units finish below the target legitimately. Four do so at every setting — Nămoloasa,
+Pietroșani, Sulina and Tănăsoaia — because every neighbour they have lies across a county
+line. They are reported, never forced.
+
 ### The parameters
 
 | Parameter | Default | Range | What it does |
@@ -88,6 +102,7 @@ the purpose. Anything still unmerged after it simply stays as it is today.
 | Minimum separation | 15 km | 0 – 30 km | Keeps promoted centres apart |
 | Minimum overlap | 10% | 0 – 50% | How much of a commune must fall inside the radius |
 | Leftover threshold | 5,000 | 0 (off) – 15,000 | How large a leftover cluster may grow |
+| Minimum resulting population | 0 (off) | 0 – 100,000 | Merges units that finish below this |
 
 The two radii snap to 2.5 km steps. Reach is precomputed for each of those steps so the map
 can recompute in milliseconds instead of re-doing the geometry in your browser.
@@ -254,6 +269,20 @@ Odată preluată, o comună rămâne preluată — primul centru care ajunge la 
 Două limite ferme: o regiune **nu traversează niciodată o limită de județ**, iar o comună
 poate fi absorbită doar peste o graniță traversată efectiv de un drum.
 
+**Pasul 5 — mărimea minimă rezultată.**
+Opțional și dezactivat implicit. O unitate rămasă sub pragul de populație absoarbe cea mai
+mică unitate vecină pe care o poate, în mod repetat, până atinge pragul sau rămâne fără
+vecini **în propriul județ**. Cea mai mare dintre cele două își păstrează reședința.
+
+Răspunde la o întrebare diferită de toate cele de mai sus. Regulile gravitaționale întreabă
+„cine pe cine poate cuprinde”; aceasta întreabă „este rezultatul destul de mare cât să merite
+creat”. O unitate de 4.000 de locuitori tot are nevoie de primar, secretar și buget, deci un
+scenariu poate micșora harta fără să rezolve nimic.
+
+Unele unități rămân sub prag în mod legitim. Patru rămân la orice setare — Nămoloasa,
+Pietroșani, Sulina și Tănăsoaia — pentru că toți vecinii lor se află în alt județ. Sunt
+raportate, niciodată forțate.
+
 **Pasul 4 — ce rămâne.**
 Comunele la care nu a ajuns niciun centru se pot uni între ele, cele mai mici întâi, până la
 o limită de mărime aleasă. Aceste grupări urmează o **regulă diferită** de absorbție și sunt
@@ -274,6 +303,7 @@ Ce rămâne neunit și după acest pas rămâne pur și simplu așa cum este ast
 | Distanță minimă | 15 km | 0 – 30 km | Menține centrele promovate depărtate |
 | Suprapunere minimă | 10% | 0 – 50% | Cât din comună trebuie să intre în rază |
 | Prag comune rămase | 5.000 | 0 (oprit) – 15.000 | Cât de mare poate crește o grupare |
+| Populație minimă rezultată | 0 (oprit) | 0 – 100.000 | Unește unitățile rămase sub acest prag |
 
 Cele două raze se fixează pe trepte de 2,5 km. Întinderea este precalculată pentru fiecare
 treaptă, astfel încât harta să se recalculeze în milisecunde, fără a reface geometria în

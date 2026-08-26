@@ -38,6 +38,15 @@ MIN_OVERLAP_RANGE: Final = (0.0, 0.5)
 P_ORPHAN_DEFAULT: Final = 5_000
 P_ORPHAN_RANGE: Final = (0, 15_000)
 
+# Minimum population a resulting unit should reach once everything else has run.
+#
+# Off by default. The gravitational rules answer "who can reach whom"; this answers a
+# different question — "is the result big enough to be worth having" — so it is a separate,
+# clearly-labelled step rather than something folded into the radii, where it would quietly
+# change what a radius means.
+P_TARGET_DEFAULT: Final = 0
+P_TARGET_RANGE: Final = (0, 100_000)
+
 # Seed-promotion relaxation (brief §2 step 1): when no candidate satisfies the separation
 # constraint, shrink it stepwise rather than failing outright, and give up below the floor.
 R_SEP_RELAXATION_FACTOR: Final = 0.75

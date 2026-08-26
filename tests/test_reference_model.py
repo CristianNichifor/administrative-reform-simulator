@@ -100,6 +100,42 @@ class TestProperties:
         assert first_summary["savings_admin_ron"] == second_summary["savings_admin_ron"]
 
 
+class TestMinimumTargetPopulation:
+    def test_off_by_default(self, default_run) -> None:
+        _, summary = default_run
+        assert summary["params"].p_target == 0
+        assert summary["below_target"] == 0
+
+    def test_raising_the_target_never_increases_regions(self, data) -> None:
+        counts = [run(data, Params(p_target=t))[1]["regions"] for t in (0, 10_000, 50_000)]
+        assert counts == sorted(counts, reverse=True)
+
+    def test_units_below_target_have_no_same_county_neighbour(self, data) -> None:
+        # A unit may finish under the target, but only because every neighbour it has lies
+        # across a county line. If one had a same-county neighbour and still finished short,
+        # the consolidation loop stopped early.
+        result, _ = run(data, Params(p_target=50_000))
+        for absorber, members in result.members.items():
+            population = sum(data.population[m] for m in members)
+            if population >= 50_000:
+                continue
+            neighbours = {
+                result.region_of[n]
+                for m in members
+                for n in data.neighbours.get(m, ())
+                if data.county[n] == data.county[m]
+            }
+            assert neighbours <= {absorber}, f"{absorber} could still have merged"
+
+    @pytest.mark.parametrize("target", [10_000, 50_000, 100_000])
+    def test_consolidation_never_crosses_a_county(self, data, target: int) -> None:
+        # The step most likely to leak across county lines, because it merges whole units
+        # rather than individual communes.
+        result, _ = run(data, Params(p_target=target))
+        for members in result.members.values():
+            assert len({data.county[m] for m in members}) == 1
+
+
 class TestParameterResponse:
     def test_raising_the_threshold_never_increases_seeds(self, data) -> None:
         # A higher population bar can only remove tier-1 seeds, though promotion may add

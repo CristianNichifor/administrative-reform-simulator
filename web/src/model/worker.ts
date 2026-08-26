@@ -38,10 +38,13 @@ export interface ResultMessage {
   type: 'result';
   token: number;
   regionOf: Uint16Array;
+  reasonOf: Uint8Array;
+  overlapOf: Uint8Array;
   tierOf: Int8Array;
   regions: number;
   seeds: number;
   orphanRegions: number;
+  belowTarget: number;
   savingsAdminRon: number;
   savingsOperatingRon: number;
   underSeededCounties: string[];
@@ -113,10 +116,13 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         type: 'result',
         token: message.token,
         regionOf: result.regionOf,
+        reasonOf: result.reasonOf,
+        overlapOf: result.overlapOf,
         tierOf: result.tierOf,
         regions: result.regions,
         seeds: result.seeds,
         orphanRegions: result.orphanRegions,
+        belowTarget: result.belowTarget,
         savingsAdminRon: result.savingsAdminRon,
         savingsOperatingRon: result.savingsOperatingRon,
         underSeededCounties: result.underSeededCounties,
@@ -124,7 +130,12 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       };
       // Transferred, not copied: 3,186 entries is small, but the transfer keeps the main
       // thread from doing structured-clone work on every frame of a drag.
-      self.postMessage(payload, [payload.regionOf.buffer, payload.tierOf.buffer]);
+      self.postMessage(payload, [
+        payload.regionOf.buffer,
+        payload.reasonOf.buffer,
+        payload.overlapOf.buffer,
+        payload.tierOf.buffer,
+      ]);
     }
   } catch (error) {
     const failure: ErrorMessage = {

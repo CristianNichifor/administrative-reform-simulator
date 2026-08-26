@@ -88,6 +88,12 @@ BOUNDARY_LINES = Source(
 
 WFS_LAU_LINE_TYPENAME: Final = "administrative-boundaries:ro_admin_lau_line"
 
+# Context layers for the map. None of these feed the model — they exist so a reader can see
+# the constraints the model works under: a region can never cross a county line, and the
+# development regions are the tier above that.
+WFS_COUNTY_LINE_TYPENAME: Final = "administrative-boundaries:ro_admin_county_simplified_line"
+WFS_REGION_LINE_TYPENAME: Final = "administrative-boundaries:ro_admin_region_simplified_line"
+
 
 # --- Locality points (UAT seats) --------------------------------------------------------
 # The brief specifies taking commune seats from SIRUTA's `reședință de comună` and their

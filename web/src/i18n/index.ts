@@ -34,6 +34,11 @@ export interface Strings {
   pOrphan: string;
   pOrphanHelp: string;
   pOrphanOff: string;
+  pTarget: string;
+  pTargetHelp: string;
+  pTargetOff: string;
+  belowTarget: string;
+  belowTargetHelp: string;
 
   regions: string;
   reduction: string;
@@ -49,6 +54,24 @@ export interface Strings {
   costPerResident: string;
   costLegendLow: string;
   costLegendHigh: string;
+  layers: string;
+  layerCounties: string;
+  layerRegions: string;
+  layerSeats: string;
+  layerCapitals: string;
+  layerRoads: string;
+  layersRoadsNote: string;
+
+  whyTitle: string;
+  whyCapital: string;
+  whyThreshold: string;
+  whyPromoted: string;
+  whyOrphanSeat: string;
+  whyAbsorbedOverlap: string;
+  whyAbsorbedSeat: string;
+  whyOrphanMember: string;
+  whyTargetMerge: string;
+  whyCountyRule: string;
   legend: string;
   legendAbsorber: string;
   legendAbsorbed: string;
@@ -100,6 +123,13 @@ const ro: Strings = {
   pOrphanHelp:
     'Comunele neatinse de niciun centru se pot uni între ele până la acest prag. Regulă diferită de absorbție.',
   pOrphanOff: 'dezactivat',
+  pTarget: 'Populație minimă rezultată',
+  pTargetHelp:
+    'După toate celelalte reguli, unitățile sub acest prag se unesc cu cea mai mică unitate vecină din același județ, până ating pragul.',
+  pTargetOff: 'dezactivat',
+  belowTarget: 'Sub prag',
+  belowTargetHelp:
+    'Unități care rămân sub pragul de populație pentru că toți vecinii lor se află în alt județ. Nu sunt forțate.',
 
   regions: 'Unități rezultate',
   reduction: 'Reducere',
@@ -116,6 +146,29 @@ const ro: Strings = {
   costPerResident: 'Cost administrativ / locuitor',
   costLegendLow: 'mai ieftin',
   costLegendHigh: 'mai scump',
+  layers: 'Straturi',
+  layerCounties: 'Limite de județ',
+  layerRegions: 'Regiuni de dezvoltare',
+  layerSeats: 'Reședințe UAT',
+  layerCapitals: 'Centre absorbante',
+  layerRoads: 'Drumuri principale',
+  layersRoadsNote: 'se descarcă la prima activare (4,5 MB)',
+
+  whyTitle: 'De ce',
+  whyCapital: 'Reședință de județ — este centru prin regulă, indiferent de mărime.',
+  whyThreshold: 'Centru pentru că are {pop} locuitori, peste pragul de {x}.',
+  whyPromoted:
+    'Promovat centru pentru ca județul să atingă minimul de {n} centre. A fost ales pentru că acoperea cea mai multă populație neacoperită.',
+  whyOrphanSeat:
+    'Reședința unei grupări de comune mici — nu a fost absorbit de niciun centru, dar este cel mai mare din grupare.',
+  whyAbsorbedOverlap:
+    'Absorbit de {centre}: {pct} din suprafață intră în raza de {radius}, iar un drum traversează granița comună.',
+  whyAbsorbedSeat:
+    'Absorbit de {centre}: satul de reședință se află în raza de {radius}, iar un drum traversează granița comună.',
+  whyOrphanMember: 'Unit cu comunele vecine pentru că niciun centru nu a ajuns până aici.',
+  whyTargetMerge:
+    'Unit după aplicarea pragului de populație minimă rezultată ({target} locuitori).',
+  whyCountyRule: 'Toate comunele sunt din județul {county} — regiunile nu traversează limitele de județ.',
   legend: 'Legendă',
   legendAbsorber: 'Centru (primăria supraviețuiește)',
   legendAbsorbed: 'Absorbit de un centru',
@@ -167,6 +220,13 @@ const en: Strings = {
   pOrphanHelp:
     'Communes no centre reached may pair up with each other to this size. A different rule from absorption.',
   pOrphanOff: 'off',
+  pTarget: 'Minimum resulting population',
+  pTargetHelp:
+    'After every other rule, units below this merge with the smallest neighbouring unit in the same county until they reach it.',
+  pTargetOff: 'off',
+  belowTarget: 'Below target',
+  belowTargetHelp:
+    'Units that stay under the target because every neighbour they have is in another county. They are never forced.',
 
   regions: 'Resulting units',
   reduction: 'Reduction',
@@ -183,6 +243,29 @@ const en: Strings = {
   costPerResident: 'Admin cost per resident',
   costLegendLow: 'cheaper',
   costLegendHigh: 'dearer',
+  layers: 'Layers',
+  layerCounties: 'County boundaries',
+  layerRegions: 'Development regions',
+  layerSeats: 'UAT seats',
+  layerCapitals: 'Absorbing centres',
+  layerRoads: 'Major roads',
+  layersRoadsNote: 'downloaded on first use (4.5 MB)',
+
+  whyTitle: 'Why',
+  whyCapital: 'County capital — a centre by rule, whatever its size.',
+  whyThreshold: 'A centre because it has {pop} residents, above the {x} threshold.',
+  whyPromoted:
+    'Promoted to a centre so the county reaches its minimum of {n}. It was chosen because it covered the most otherwise-uncovered population.',
+  whyOrphanSeat:
+    'Seat of a small-commune cluster — no centre reached it, but it is the largest in its cluster.',
+  whyAbsorbedOverlap:
+    'Absorbed by {centre}: {pct} of its territory falls within the {radius} radius, and a road crosses their shared border.',
+  whyAbsorbedSeat:
+    'Absorbed by {centre}: its seat village lies inside the {radius} radius, and a road crosses their shared border.',
+  whyOrphanMember: 'Merged with neighbouring communes because no centre reached this far.',
+  whyTargetMerge:
+    'Merged after applying the minimum resulting population ({target} residents).',
+  whyCountyRule: 'Every commune here is in {county} — regions never cross county boundaries.',
   legend: 'Legend',
   legendAbsorber: 'Centre (its administration survives)',
   legendAbsorbed: 'Absorbed by a centre',

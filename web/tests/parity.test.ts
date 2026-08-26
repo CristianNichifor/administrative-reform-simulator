@@ -32,11 +32,13 @@ interface FixtureCase {
     r_sep_m: number;
     min_overlap: number;
     p_orphan: number;
+    p_target: number;
   };
   regions: number;
   seeds: number;
   orphanRegions: number;
   unassigned: number;
+  belowTarget: number;
   savingsAdminRon: number;
   savingsOperatingRon: number;
   assignmentSha256: string;
@@ -67,6 +69,7 @@ function toParams(p: FixtureCase['params']): Params {
     rSepM: p.r_sep_m,
     minOverlap: p.min_overlap,
     pOrphan: p.p_orphan,
+    pTarget: p.p_target,
   };
 }
 
@@ -150,6 +153,7 @@ describe('parity with the Python reference', () => {
     expect(result.seeds).toBe(expected.seeds);
     expect(result.orphanRegions).toBe(expected.orphanRegions);
     expect(result.unassigned).toBe(expected.unassigned);
+    expect(result.belowTarget).toBe(expected.belowTarget);
     expect(assignmentHash(result.regionOf)).toBe(expected.assignmentSha256);
 
     // Float sums differ in their last bits between languages; a rounding artefact is not
