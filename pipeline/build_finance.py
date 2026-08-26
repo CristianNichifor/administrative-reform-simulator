@@ -68,8 +68,17 @@ def reshape(raw: dict, report: Report) -> pd.DataFrame:
             raise SystemExit(f"  FATAL: {duplicated} duplicate SIRUTA in {expense_type} rows")
         frames.append(df.set_index("siruta"))
 
+    admin = pd.DataFrame(raw["administrative"])
+    admin["siruta"] = normalise_siruta(admin["siruta_code"])
+    frames.append(
+        admin[["siruta", "total_amount"]]
+        .rename(columns={"total_amount": "administrative"})
+        .set_index("siruta")
+    )
+
     wide = pd.concat(frames, axis=1).reset_index()
-    wide[list(EXPENSE_TYPES)] = wide[list(EXPENSE_TYPES)].fillna(0.0)
+    money_cols = [*EXPENSE_TYPES, "administrative"]
+    wide[money_cols] = wide[money_cols].fillna(0.0)
 
     report.add(
         Check(
@@ -97,6 +106,20 @@ def check_totals(wide: pd.DataFrame, report: Report) -> None:
             f"({operating / 1e9:.1f} operating + {development / 1e9:.1f} development); "
             f"plausible band {low}-{high} bn",
             fatal=not ok,
+        )
+    )
+
+    admin = wide["administrative"].sum()
+    admin_share = admin / operating if operating else 0
+    report.add(
+        Check(
+            "administrative_share",
+            0.05 <= admin_share <= 0.35,
+            f"{admin / 1e9:.1f} bn RON is town-hall administration, {admin_share:.1%} of "
+            "operating spending. The rest is schools, social assistance, health and "
+            "utilities, which a merger does not remove — this is why the savings headline "
+            "uses administration rather than all operating spending",
+            fatal=not 0.05 <= admin_share <= 0.35,
         )
     )
 
@@ -142,9 +165,14 @@ def join_to_uats(wide: pd.DataFrame, uats: gpd.GeoDataFrame, report: Report) -> 
     )
 
     merged = uats.merge(wide, on="siruta", how="left", validate="one_to_one")
-    merged[list(EXPENSE_TYPES)] = merged[list(EXPENSE_TYPES)].fillna(0.0)
+    money_cols = [*EXPENSE_TYPES, "administrative"]
+    merged[money_cols] = merged[money_cols].fillna(0.0)
     merged = merged.rename(
-        columns={"functionare": "operating_ron", "dezvoltare": "development_ron"}
+        columns={
+            "functionare": "operating_ron",
+            "dezvoltare": "development_ron",
+            "administrative": "administrative_ron",
+        }
     )
 
     # build_geometry already fails the build if any population is missing or non-positive,
@@ -219,9 +247,15 @@ def main(argv: list[str] | None = None) -> int:
 
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     out = WEB_DATA_DIR / "finance.parquet"
-    merged[["siruta", "operating_ron", "development_ron", "operating_per_capita_ron"]].sort_values(
-        "siruta", ignore_index=True
-    ).to_parquet(out, index=False, compression="zstd")
+    merged[
+        [
+            "siruta",
+            "operating_ron",
+            "administrative_ron",
+            "development_ron",
+            "operating_per_capita_ron",
+        ]
+    ].sort_values("siruta", ignore_index=True).to_parquet(out, index=False, compression="zstd")
 
     print(f"\nWrote {out} ({len(merged)} UATs, {out.stat().st_size / 1024:.0f} KB)")
     print(f"Wrote {REPORTS_DIR / 'finance.md'}")

@@ -256,7 +256,8 @@ def fetch_finance(force: bool = False) -> Path:
     if _skip(out, force):
         return out
 
-    def _query(expense_type: str) -> str:
+    def _query(expense_type: str, functional_prefix: str | None = None) -> str:
+        prefix_filter = f'functional_prefixes: ["{functional_prefix}"]' if functional_prefix else ""
         return f"""
         query Finance($year: PeriodDate!) {{
           heatmapUATData(
@@ -265,6 +266,7 @@ def fetch_finance(force: bool = False) -> Path:
               report_type: {sources.FINANCE_REPORT_TYPE}
               is_uat: true
               expense_types: [{expense_type}]
+              {prefix_filter}
               report_period: {{ type: YEAR, selection: {{ dates: [$year] }} }}
             }}
           ) {{
@@ -299,6 +301,25 @@ def fetch_finance(force: bool = False) -> Path:
         print(f"  {expense_type:12s} {len(rows):5d} rows, {total / 1e9:7.1f} bn RON")
         payload["by_expense_type"][expense_type] = rows  # type: ignore[index]
         time.sleep(GRAPHQL_PAGE_DELAY_S)
+
+    # Administration only, which is the slice a merger actually removes.
+    r = session.post(
+        sources.GRAPHQL_ENDPOINT,
+        json={
+            "query": _query("functionare", sources.ADMIN_FUNCTIONAL_PREFIX),
+            "variables": {"year": str(sources.FINANCE_YEAR)},
+        },
+        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    body = r.json()
+    if "errors" in body:
+        raise SystemExit(f"  FATAL: GraphQL errors: {json.dumps(body['errors'])[:400]}")
+    rows = body["data"]["heatmapUATData"]
+    total = sum(row["total_amount"] or 0 for row in rows)
+    print(f"  {'administrative':12s} {len(rows):5d} rows, {total / 1e9:7.1f} bn RON")
+    payload["administrative"] = rows
 
     out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     _sidecar(out, sources.FINANCE, year=sources.FINANCE_YEAR)

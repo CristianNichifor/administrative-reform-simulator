@@ -175,6 +175,20 @@ FINANCE_ACCOUNT_CATEGORY: Final = "ch"
 FINANCE_REPORT_TYPE: Final = "PRINCIPAL_AGGREGATED"
 EXPENSE_TYPES: Final[tuple[str, ...]] = ("functionare", "dezvoltare")
 
+# Functional-classification prefix for "Autorități publice și acțiuni externe" — the town
+# hall itself: the mayor's office, the council, the administrative staff.
+#
+# This matters more than it looks. Operating expenditure is 109.4 bn RON nationally, but
+# only 14.7 bn of that is administration; the remaining 94.7 bn is schools, social
+# assistance, health, culture and utilities. Merging two town halls does not stop a school
+# needing teachers, so applying the brief's savings formula to the whole operating figure
+# claims a saving of 31.8 bn RON — 29% of all local spending in Romania — which no mayor
+# would accept and no journalist should repeat.
+#
+# Both figures are therefore carried: administration as the defensible headline, and the
+# full operating figure as an explicit upper bound.
+ADMIN_FUNCTIONAL_PREFIX: Final = "51"
+
 
 # --- Roads ------------------------------------------------------------------------------
 # Only ever used for a binary 'does a road cross this shared border' test (brief §8
