@@ -1,6 +1,6 @@
 # Data-quality report — geometry and the SIRUTA join
 
-Generated 2026-08-26T18:35:23+00:00 by `pipeline/build_geometry.py`.
+Generated 2026-08-26T18:43:35+00:00 by `pipeline/build_geometry.py`.
 
 | Check | Status | Detail |
 |---|---|---|

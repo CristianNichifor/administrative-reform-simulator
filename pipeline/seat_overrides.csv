@@ -8,13 +8,17 @@
 # seat_siruta:     SIRUTA of the locality that is actually the seat
 # note:            why, with a citable source
 #
-# Candidates awaiting confirmation (build_seats currently resolves these by deterministic
-# tiebreak, and flags them as name_prefix_ambiguous):
-#   ORAS EFORIE (CT)   picked Eforie Sud; the administrative centre is understood to be
-#                      Eforie Nord. Needs confirmation against the town's own statute.
-#   HARMANESTI (IS)    picked Harmanestii Noi; likely Harmanestii Vechi.
-#   RAU ALB (DB)       picked Rau Alb de Jos; believed correct.
-#   PORUMBENI (HR)     picked Porumbenii Mari; believed correct.
-#   SARBII - MAGURA (OT) has one locality, Vitanesti, whose name does not match the
-#                      commune's at all. Worth checking the SIRUTA linkage.
+# All five tiebreak cases were checked against primary sources on 2026-08-26. Four were
+# already correct and need no row here:
+#   ORAS EFORIE (CT)     Eforie Sud is correct — the town hall is at Progresului 1, Eforie
+#                        Sud, and Eforie Sud is formally the administrative centre.
+#                        https://www.primariaeforie.ro/contact/
+#   RAU ALB (DB)         Rau Alb de Jos is correct.
+#                        https://ro.wikipedia.org/wiki/Comuna_R%C3%A2u_Alb,_D%C3%A2mbovi%C8%9Ba
+#   PORUMBENI (HR)       Porumbenii Mari is correct.
+#                        https://ro.wikipedia.org/wiki/Comuna_Porumbeni,_Harghita
+#   SARBII - MAGURA (OT) Vitanesti is correct: the commune consists only of that village,
+#                        split from Optasi-Magura in 2004, and kept a different name.
+#                        https://ro.wikipedia.org/wiki/Comuna_S%C3%A2rbii-M%C4%83gura,_Olt
 uat_siruta,seat_siruta,note
+100326,99584,"Comuna Harmanesti (IS): the seat is Harmanestii Vechi, not Harmanestii Noi. The commune was re-established in 2004 out of Todiresti, after this SIRUTA vintage, so all three villages still carry rank V and the automatic tiebreak picked the lower code. https://ro.wikipedia.org/wiki/Comuna_H%C4%83rm%C4%83ne%C8%99ti,_Ia%C8%99i"
