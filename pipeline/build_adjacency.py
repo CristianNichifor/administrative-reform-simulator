@@ -286,6 +286,49 @@ def flag_road_crossings(
     return out
 
 
+def mark_fallback_edges(edges: gpd.GeoDataFrame, uats: gpd.GeoDataFrame, report: Report):
+    """Keep water-separated UATs reachable without weakening the rule everywhere else.
+
+    A UAT with no road-connected neighbour can neither absorb nor be absorbed, and the
+    orphan tier cannot rescue it either, since that also traverses road edges. It would sit
+    on the finished map as a permanent island — not because that reflects policy, but
+    because a boat is not a road.
+
+    So: where a UAT has *no* road-connected neighbour at all, its plain shared-border
+    neighbours become usable. The relaxation is strictly local. A UAT with even one road
+    connection is unaffected, so this can never quietly loosen the rule in ordinary terrain.
+
+    On the current data this fires zero times, because OpenStreetMap tags the Delta dyke
+    roads and the Sfântu Gheorghe–Sulina coastal track as ordinary roads. It exists so that
+    tightening the accepted road classes later cannot strand a commune.
+    """
+    road = edges[edges["has_road"]]
+    connected = set(road["a_siruta"]) | set(road["b_siruta"])
+    stranded = set(uats["siruta"]) - connected
+
+    edges = edges.copy()
+    touches_stranded = edges["a_siruta"].isin(stranded) | edges["b_siruta"].isin(stranded)
+    edges["is_fallback"] = ~edges["has_road"] & touches_stranded
+    # What the model actually traverses.
+    edges["traversable"] = edges["has_road"] | edges["is_fallback"]
+
+    name = uats.set_index("siruta")["name_uat"]
+    county = uats.set_index("siruta")["county_code"]
+    report.add(
+        Check(
+            "water_separated_fallback",
+            True,
+            f"{len(stranded)} UATs have no road-connected neighbour and fall back to plain "
+            f"shared-border adjacency, enabling {int(edges['is_fallback'].sum())} edges",
+            rows=[
+                {"siruta": s, "name": name.get(s), "county": county.get(s)}
+                for s in sorted(stranded)[:50]
+            ],
+        )
+    )
+    return edges
+
+
 def check_connectivity(edges: gpd.GeoDataFrame, uats: gpd.GeoDataFrame, report: Report) -> None:
     """The brief's headline sanity check: how many UATs have no road-connected neighbour?
 
@@ -364,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     edges = flag_road_crossings(pairs, roads, uats, report)
 
     print("\nConnectivity:")
+    edges = mark_fallback_edges(edges, uats, report)
     check_connectivity(edges, uats, report)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -380,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
             "a_siruta": edges["a_siruta"],
             "b_siruta": edges["b_siruta"],
             "has_road": edges["has_road"],
+            "is_fallback": edges["is_fallback"],
+            "traversable": edges["traversable"],
             "road_class": edges["road_class"],
             "legalstat": edges["legalstat"],
         }

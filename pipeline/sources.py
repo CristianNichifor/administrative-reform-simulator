@@ -136,6 +136,46 @@ ATTRIBUTES = Source(
 )
 
 
+# --- Budget execution -------------------------------------------------------------------
+# The savings metric is the operating expenditure a merger would remove:
+#
+#   sum(operating_expenditure of all members) - operating_expenditure(absorber)
+#
+# Development spending is excluded, because merging two town halls does not stop a road
+# from needing to be built.
+#
+# Transparenta.eu models that distinction as a first-class enum on the fact table
+# (functionare / dezvoltare), so it does not have to be derived from COFOG3 economic codes.
+# Measured for 2024: 109.4 bn RON operating + 55.2 bn development = 164.6 bn, against a
+# 164.7 bn unfiltered total, so the split is exhaustive and nothing falls between the two.
+#
+# REPORT TYPE — the decision that matters. The Ministry publishes the same money more than
+# once: once per institution in detail, and again rolled up per principal and per secondary
+# ordonator. Summing a mixture double-counts. PRINCIPAL_AGGREGATED is the right single
+# choice here: one row per top-level spending authority, which for local government is the
+# UAT itself, so it captures the commune plus its subordinate institutions exactly once.
+FINANCE = Source(
+    key="uat_finance",
+    title="Budget execution per UAT, split operating vs development",
+    url=GRAPHQL_ENDPOINT,
+    licence="Apache-2.0 (software); underlying data Ministerul Finanțelor, public",
+    attribution="Transparenta.eu, data from Ministerul Finanțelor",
+    note=(
+        "heatmapUATData with report_type PRINCIPAL_AGGREGATED and is_uat true. "
+        "Bucharest is returned both as the municipality and as its six sectors; the "
+        "municipality is a county-level row and drops out on the SIRUTA join."
+    ),
+)
+
+# Latest complete execution year. Bump deliberately: every savings figure moves with it.
+FINANCE_YEAR: Final = 2024
+
+# 'ch' is expenditure, 'vn' is income.
+FINANCE_ACCOUNT_CATEGORY: Final = "ch"
+FINANCE_REPORT_TYPE: Final = "PRINCIPAL_AGGREGATED"
+EXPENSE_TYPES: Final[tuple[str, ...]] = ("functionare", "dezvoltare")
+
+
 # --- Roads ------------------------------------------------------------------------------
 # Only ever used for a binary 'does a road cross this shared border' test (brief §8
 # rules out routing entirely), but that still needs the full road geometry.

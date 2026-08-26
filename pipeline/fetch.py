@@ -249,6 +249,63 @@ def fetch_attributes(force: bool = False) -> Path:
     return out
 
 
+def fetch_finance(force: bool = False) -> Path:
+    """Budget execution per UAT, one call per expense type."""
+    out = RAW_DIR / "uat_finance.json"
+    print(f"[finance] {out.name}")
+    if _skip(out, force):
+        return out
+
+    def _query(expense_type: str) -> str:
+        return f"""
+        query Finance($year: PeriodDate!) {{
+          heatmapUATData(
+            filter: {{
+              account_category: {sources.FINANCE_ACCOUNT_CATEGORY}
+              report_type: {sources.FINANCE_REPORT_TYPE}
+              is_uat: true
+              expense_types: [{expense_type}]
+              report_period: {{ type: YEAR, selection: {{ dates: [$year] }} }}
+            }}
+          ) {{
+            siruta_code
+            uat_name
+            county_code
+            population
+            total_amount
+          }}
+        }}
+        """
+
+    session = requests.Session()
+    payload: dict[str, object] = {"year": sources.FINANCE_YEAR, "by_expense_type": {}}
+
+    for expense_type in sources.EXPENSE_TYPES:
+        r = session.post(
+            sources.GRAPHQL_ENDPOINT,
+            json={
+                "query": _query(expense_type),
+                "variables": {"year": str(sources.FINANCE_YEAR)},
+            },
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+            timeout=TIMEOUT,
+        )
+        r.raise_for_status()
+        body = r.json()
+        if "errors" in body:
+            raise SystemExit(f"  FATAL: GraphQL errors: {json.dumps(body['errors'])[:400]}")
+        rows = body["data"]["heatmapUATData"]
+        total = sum(row["total_amount"] or 0 for row in rows)
+        print(f"  {expense_type:12s} {len(rows):5d} rows, {total / 1e9:7.1f} bn RON")
+        payload["by_expense_type"][expense_type] = rows  # type: ignore[index]
+        time.sleep(GRAPHQL_PAGE_DELAY_S)
+
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    _sidecar(out, sources.FINANCE, year=sources.FINANCE_YEAR)
+    print(f"  {out.stat().st_size / 1_048_576:.1f} MB")
+    return out
+
+
 def fetch_roads(force: bool = False) -> Path:
     """The OSM Romania extract. Large; only needed from build_adjacency.py onwards."""
     out = RAW_DIR / "romania-latest.osm.pbf"
@@ -293,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     fetch_boundary_lines(args.force)
     fetch_localities(args.force)
     fetch_attributes(args.force)
+    fetch_finance(args.force)
     if args.with_roads:
         fetch_roads(args.force)
     else:

@@ -1,6 +1,6 @@
 # Data-quality report — geometry and the SIRUTA join
 
-Generated 2026-08-26T16:40:13+00:00 by `pipeline/build_geometry.py`.
+Generated 2026-08-26T18:55:52+00:00 by `pipeline/build_geometry.py`.
 
 | Check | Status | Detail |
 |---|---|---|
@@ -13,6 +13,7 @@ Generated 2026-08-26T16:40:13+00:00 by `pipeline/build_geometry.py`.
 | `road_segments` | pass | 162,347 road features loaded from OSM |
 | `parallel_roads_rejected` | pass | 12,375 road/border matches fell inside the 50 m buffer but did not enter both UATs, and were rejected as parallel rather than crossing |
 | `road_crossing_rate` | pass | 5934 of 9281 shared borders are crossed by a road (63.9%), buffer 50 m |
+| `water_separated_fallback` | pass | 0 UATs have no road-connected neighbour and fall back to plain shared-border adjacency, enabling 0 edges |
 | `uats_without_any_neighbour` | pass | 0 UATs share no border with any other UAT |
 | `uats_without_road_neighbour` | pass | 0 UATs have no road-connected neighbour (threshold 10); these can neither absorb nor be absorbed |
 | `degree_distribution` | pass | neighbours per UAT: min=1, median=6, max=14 |

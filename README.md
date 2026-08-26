@@ -60,6 +60,7 @@ are verified before any frontend work begins.
 - [x] `build_seats.py` — one seat point per UAT, from the SIRUTA nomenclator
 - [x] `build_adjacency.py` — adjacency with road-crossing flags **(verification gate)**
 - [x] `build_candidacy.py` — precomputed overlap fractions per radius **(verification gate)**
+- [x] `build_finance.py` — operating vs development expenditure per UAT
 - [ ] `reference_model.py` — Python implementation of the algorithm
 - [ ] TypeScript port + parity tests
 - [ ] Frontend
