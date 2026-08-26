@@ -59,7 +59,7 @@ are verified before any frontend work begins.
 - [x] `fetch.py` + `build_geometry.py` + data-quality report on boundaries and the SIRUTA join
 - [x] `build_seats.py` — one seat point per UAT, from the SIRUTA nomenclator
 - [x] `build_adjacency.py` — adjacency with road-crossing flags **(verification gate)**
-- [ ] `build_candidacy.py` — precomputed overlap fractions per radius **(verification gate)**
+- [x] `build_candidacy.py` — precomputed overlap fractions per radius **(verification gate)**
 - [ ] `reference_model.py` — Python implementation of the algorithm
 - [ ] TypeScript port + parity tests
 - [ ] Frontend
