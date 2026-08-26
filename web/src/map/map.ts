@@ -16,6 +16,8 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
+import type { ViewMode } from '../model/types';
+
 // MapLibre 6 ships its worker as a separate file instead of inlining it, and a bundled
 // app must say where that file ended up. Without this every source fails to load —
 // silently, with no error event and no failed request, which is a genuinely difficult
@@ -43,16 +45,39 @@ export const UAT_OUTLINE = 'uat-outline';
 const REGION_HUES = [
   '#2f6f8f', '#3f8f7f', '#5b7fa8', '#417f5c', '#6a6f9c',
   '#2f7f7a', '#4a6f8f', '#557f6a', '#3f6f9c', '#5f8f8a',
+  '#46769b', '#3a8a72', '#6d83ab', '#4c8a66', '#7a7fa6',
+  '#357f88', '#5a7f9c', '#628a72', '#4a7fa8', '#6b998f',
 ];
+
+/**
+ * Sequential ramp for administration cost per resident, lightest to darkest.
+ *
+ * Borrowed from reformaadm, which uses the same four steps for fiscal stress. Keeping the
+ * ramp identical is deliberate: the two tools sit alongside each other and cover the same
+ * communes, so a reader moving between them should not have to relearn what red means.
+ */
+export const COST_RAMP = ['#f5c0c0', '#cc6060', '#aa2828', '#7b1b1b'];
+
+/** Accent for figures about money, matching reformaadm's revenue bar. */
+export const MONEY_ACCENT = '#c9a84c';
+
+export function costColour(perResident: number, breaks: number[]): string {
+  if (!(perResident > 0)) return UNCHANGED_COLOUR;
+  let step = 0;
+  while (step < breaks.length && perResident >= breaks[step]!) step += 1;
+  return COST_RAMP[step]!;
+}
 export const ORPHAN_COLOUR = '#b58547';
 export const UNCHANGED_COLOUR = '#8d8f93';
 export const ABSORBER_COLOUR = '#123f52';
 
 export function regionColour(regionIndex: number, isOrphan: boolean): string {
   if (isOrphan) return ORPHAN_COLOUR;
-  // Deterministic: the same region gets the same colour on every run, so a scenario link
-  // reproduces the map a reader was looking at, not just its shape.
-  return REGION_HUES[regionIndex % REGION_HUES.length]!;
+  // Deterministic, so a scenario link reproduces the map a reader was looking at rather
+  // than just its shape. The prime stride spreads consecutive region indices across the
+  // palette instead of walking it in order, which matters because neighbouring regions
+  // tend to have neighbouring indices and would otherwise often come out the same colour.
+  return REGION_HUES[(regionIndex * 7) % REGION_HUES.length]!;
 }
 
 /** A deliberately plain basemap: the choropleth is the content, not the terrain. */
@@ -66,11 +91,14 @@ const BLANK_STYLE: StyleSpecification = {
 
 export interface MapHandle {
   map: MapLibreMap;
-  /** Paint every UAT from a region assignment. */
+  /** Paint every UAT from a region assignment, in the given view mode. */
   applyAssignment: (
     regionOf: Uint16Array,
     isOrphanRegion: Uint8Array,
     tierOf: Int8Array,
+    mode: ViewMode,
+    costPerResident: Float32Array,
+    costBreaks: number[],
   ) => void;
   setSelected: (index: number | null) => void;
   onSelect: (handler: (index: number | null) => void) => void;
@@ -206,17 +234,25 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     regionOf: Uint16Array,
     isOrphanRegion: Uint8Array,
     tierOf: Int8Array,
+    mode: ViewMode,
+    costPerResident: Float32Array,
+    costBreaks: number[],
   ): void => {
     for (let i = 0; i < regionOf.length; i += 1) {
       const region = regionOf[i]!;
       const orphan = isOrphanRegion[region] === 1;
       const isAbsorber = region === i && tierOf[i] !== -1;
+      // In cost mode the absorber is not highlighted: the point of that view is the
+      // spending gradient, and a dark centre in every region would read as part of it.
+      const colour =
+        mode === 'cost'
+          ? costColour(costPerResident[i]!, costBreaks)
+          : isAbsorber
+            ? ABSORBER_COLOUR
+            : regionColour(region, orphan);
       map.setFeatureState(
         { source: SOURCE_ID, id: i },
-        {
-          colour: isAbsorber ? ABSORBER_COLOUR : regionColour(region, orphan),
-          absorber: isAbsorber,
-        },
+        { colour, absorber: mode === 'regions' && isAbsorber },
       );
     }
     if (selected !== null) {

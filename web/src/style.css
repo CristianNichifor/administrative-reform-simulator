@@ -125,6 +125,46 @@ button {
   font-weight: 600;
 }
 
+.modes {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.modes button {
+  background: transparent;
+  border: 0;
+  padding: 6px 11px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.modes button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #08151b;
+  font-weight: 600;
+}
+
+.legend .ramp {
+  display: flex;
+  gap: 0;
+  margin: 4px 0 3px;
+}
+
+.legend .ramp span {
+  width: 34px;
+  height: 10px;
+}
+
+.legend .ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
 /* --- summary ------------------------------------------------------------------------ */
 .summary {
   position: absolute;
@@ -140,7 +180,9 @@ button {
   backdrop-filter: blur(6px);
   z-index: 4;
   white-space: nowrap;
-  max-width: calc(100vw - 700px);
+  /* Clears the controls tray on the left; the detail panel now sits below this bar
+     rather than beside it, so it no longer has to make room for that too. */
+  max-width: calc(100vw - 360px);
   overflow-x: auto;
 }
 

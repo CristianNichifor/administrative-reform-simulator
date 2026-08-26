@@ -10,8 +10,15 @@ import './style.css';
 
 import { decode as decodeScenario, writeHash, type Scenario } from './app/scenario';
 import { STRINGS, detectLang, formatMoney, formatNumber, type Lang, type Strings } from './i18n';
-import { createMap, ABSORBER_COLOUR, ORPHAN_COLOUR, UNCHANGED_COLOUR, regionColour } from './map/map';
-import { DEFAULT_PARAMS, type Params } from './model/types';
+import {
+  createMap,
+  ABSORBER_COLOUR,
+  COST_RAMP,
+  ORPHAN_COLOUR,
+  UNCHANGED_COLOUR,
+  regionColour,
+} from './map/map';
+import { DEFAULT_PARAMS, type Params, type ViewMode } from './model/types';
 import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
 const DATA_BASE = `${import.meta.env.BASE_URL}data/`;
@@ -84,6 +91,8 @@ async function boot(): Promise<void> {
   let ready: ReadyMessage | null = null;
   let latest: ResultMessage | null = null;
   let isOrphanRegion = new Uint8Array(0);
+  let costPerResident = new Float32Array(0);
+  let costBreaks: number[] = [];
   let token = 0;
   let pending = false;
 
@@ -107,13 +116,56 @@ async function boot(): Promise<void> {
       'ANCPI · INS (Recensământ 2021) · Ministerul Finanțelor · OpenStreetMap · ' +
       '<a href="https://www.transparenta.eu" target="_blank" rel="noopener">Transparenta.eu</a> · ' +
       '<a href="https://geo-spatial.org" target="_blank" rel="noopener">geo-spatial.org</a>';
+    renderModes();
     renderLegend();
     renderSliders();
     renderSummary();
     renderDetail();
   };
 
+  const renderModes = (): void => {
+    const modes: [ViewMode, string][] = [
+      ['regions', strings.viewRegions],
+      ['cost', strings.viewCost],
+    ];
+    el('#modes').innerHTML = modes
+      .map(
+        ([mode, label]) =>
+          `<button data-mode="${mode}" aria-pressed="${mode === scenario.mode}">${label}</button>`,
+      )
+      .join('');
+    for (const button of document.querySelectorAll<HTMLButtonElement>('#modes button')) {
+      button.addEventListener('click', () => {
+        scenario.mode = button.dataset.mode as ViewMode;
+        writeHash(scenario);
+        renderModes();
+        renderLegend();
+        if (latest) {
+          mapHandle.applyAssignment(
+            latest.regionOf,
+            isOrphanRegion,
+            latest.tierOf,
+            scenario.mode,
+            costPerResident,
+            costBreaks,
+          );
+        }
+      });
+    }
+  };
+
   const renderLegend = (): void => {
+    if (scenario.mode === 'cost') {
+      const breaks = costBreaks
+        .map((b) => formatNumber(b, scenario.lang))
+        .join(' · ');
+      el('#legend').innerHTML =
+        `<h4>${strings.costPerResident}</h4>` +
+        `<div class="ramp">${COST_RAMP.map((c) => `<span style="background:${c}"></span>`).join('')}</div>` +
+        `<div class="ramp-labels"><span>${strings.costLegendLow}</span><span>${strings.costLegendHigh}</span></div>` +
+        `<div class="ramp-labels" style="margin-top:4px"><span>RON: ${breaks}</span></div>`;
+      return;
+    }
     const rows: [string, string][] = [
       [ABSORBER_COLOUR, strings.legendAbsorber],
       [regionColour(0, false), strings.legendAbsorbed],
@@ -224,6 +276,9 @@ async function boot(): Promise<void> {
         <dt>${strings.population}</dt><dd>${formatNumber(totalPop, scenario.lang)}</dd>
         <dt>${strings.adminCost}</dt><dd>${formatMoney(totalAdmin, scenario.lang)}</dd>
         <dt>${strings.operatingCost}</dt><dd>${formatMoney(totalOperating, scenario.lang)}</dd>
+        <dt>${strings.costPerResident}</dt><dd>${
+          totalPop > 0 ? formatNumber(totalAdmin / totalPop, scenario.lang) : '—'
+        } RON</dd>
       </dl>
       <ul class="members">
         ${members
@@ -263,6 +318,13 @@ async function boot(): Promise<void> {
 
     if (message.type === 'ready') {
       ready = message;
+      costBreaks = message.adminCostBreaks;
+      costPerResident = new Float32Array(message.uatCount);
+      for (let i = 0; i < message.uatCount; i += 1) {
+        const pop = message.population[i]!;
+        costPerResident[i] = pop > 0 ? message.administrativeRon[i]! / pop : 0;
+      }
+      renderModes();
       schedule();
       return;
     }
@@ -279,7 +341,14 @@ async function boot(): Promise<void> {
       if (message.tierOf[region] === -1) isOrphanRegion[region] = 1;
     }
 
-    mapHandle.applyAssignment(message.regionOf, isOrphanRegion, message.tierOf);
+    mapHandle.applyAssignment(
+      message.regionOf,
+      isOrphanRegion,
+      message.tierOf,
+      scenario.mode,
+      costPerResident,
+      costBreaks,
+    );
     renderSummary();
     renderDetail();
     el<HTMLElement>('#loading').hidden = true;

@@ -1,5 +1,10 @@
 {
   "uatCount": 3186,
+  "adminCostBreaks": [
+    653.1119943104981,
+    819.0542601179386,
+    1063.8410317550477
+  ],
   "overlapScale": 100,
   "overlapDecimals": 2,
   "radiusGrid": [

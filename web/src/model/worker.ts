@@ -27,6 +27,7 @@ export type Incoming = InitMessage | ComputeMessage;
 export interface ReadyMessage {
   type: 'ready';
   uatCount: number;
+  adminCostBreaks: number[];
   attributes: Attributes;
   population: Uint32Array;
   administrativeRon: Float32Array;
@@ -87,6 +88,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       const ready: ReadyMessage = {
         type: 'ready',
         uatCount: data.uatCount,
+        adminCostBreaks: data.manifest.adminCostBreaks,
         attributes: data.attributes,
         // Copies, because the worker keeps using its own views afterwards.
         population: data.population.slice(),

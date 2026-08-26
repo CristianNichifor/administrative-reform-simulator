@@ -44,6 +44,11 @@ export interface Strings {
   orphanRegions: string;
   underSeeded: string;
 
+  viewRegions: string;
+  viewCost: string;
+  costPerResident: string;
+  costLegendLow: string;
+  costLegendHigh: string;
   legend: string;
   legendAbsorber: string;
   legendAbsorbed: string;
@@ -106,6 +111,11 @@ const ro: Strings = {
   orphanRegions: 'Grupări de comune mici',
   underSeeded: 'Județe sub prag',
 
+  viewRegions: 'Unități rezultate',
+  viewCost: 'Cost administrativ / locuitor',
+  costPerResident: 'Cost administrativ / locuitor',
+  costLegendLow: 'mai ieftin',
+  costLegendHigh: 'mai scump',
   legend: 'Legendă',
   legendAbsorber: 'Centru (primăria supraviețuiește)',
   legendAbsorbed: 'Absorbit de un centru',
@@ -168,6 +178,11 @@ const en: Strings = {
   orphanRegions: 'Small-commune clusters',
   underSeeded: 'Under-seeded counties',
 
+  viewRegions: 'Resulting units',
+  viewCost: 'Admin cost per resident',
+  costPerResident: 'Admin cost per resident',
+  costLegendLow: 'cheaper',
+  costLegendHigh: 'dearer',
   legend: 'Legend',
   legendAbsorber: 'Centre (its administration survives)',
   legendAbsorbed: 'Absorbed by a centre',

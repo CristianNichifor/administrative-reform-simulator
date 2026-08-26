@@ -6,12 +6,13 @@
  * point of a tool built for public debate.
  */
 
-import { DEFAULT_PARAMS, type Params } from '../model/types';
+import { DEFAULT_PARAMS, type Params, type ViewMode } from '../model/types';
 import type { Lang } from '../i18n';
 
 export interface Scenario {
   params: Params;
   lang: Lang;
+  mode: ViewMode;
   selected: number | null;
 }
 
@@ -34,6 +35,7 @@ export function encode(scenario: Scenario): string {
     if (value !== DEFAULT_PARAMS[key]) q.set(short, String(value));
   }
   q.set('lang', scenario.lang);
+  if (scenario.mode !== 'regions') q.set('mode', scenario.mode);
   if (scenario.selected !== null) q.set('sel', String(scenario.selected));
   return q.toString();
 }
@@ -59,6 +61,7 @@ export function decode(hash: string, lang: Lang): Scenario {
       pOrphan: num(q.get(KEYS.pOrphan), DEFAULT_PARAMS.pOrphan),
     },
     lang: (q.get('lang') as Lang) ?? lang,
+    mode: q.get('mode') === 'cost' ? 'cost' : 'regions',
     selected: sel !== null && Number.isFinite(sel) ? sel : null,
   };
 }

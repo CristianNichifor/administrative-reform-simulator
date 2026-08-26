@@ -202,8 +202,30 @@ def main(argv: list[str] | None = None) -> int:
 
     (WEB_DATA_DIR / "candidacy.bin").write_bytes(b"".join(chunks))
 
+    # Quantile breaks for the cost choropleth, computed from the data rather than picked
+    # by eye. Administration cost per resident is the figure that actually argues for
+    # merging: a commune of 1,200 people still needs a mayor, a secretary and a budget.
+    per_capita = np.divide(
+        admin.astype(np.float64),
+        population.astype(np.float64),
+        out=np.zeros(len(order)),
+        where=population > 0,
+    )
+    positive = per_capita[per_capita > 0]
+    cost_breaks = [float(np.quantile(positive, q)) for q in (0.25, 0.5, 0.75)]
+    report.add(
+        Check(
+            "admin_cost_per_resident",
+            True,
+            "quartile breaks "
+            + ", ".join(f"{b:,.0f}" for b in cost_breaks)
+            + f" RON/resident (median {np.median(positive):,.0f}, max {positive.max():,.0f})",
+        )
+    )
+
     manifest = {
         "uatCount": len(order),
+        "adminCostBreaks": cost_breaks,
         "overlapScale": OVERLAP_SCALE,
         "overlapDecimals": OVERLAP_QUANTISATION_DECIMALS,
         "radiusGrid": list(RADIUS_GRID_M),
