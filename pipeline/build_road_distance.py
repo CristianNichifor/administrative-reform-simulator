@@ -35,16 +35,16 @@ from pipeline.build_geometry import Check, Report, write_report
 from pipeline.constants import CRS_STEREO70, CRS_WGS84
 from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR
 
-# The classified public network, plus the slip roads that join it up.
+# The whole public road network, down to the residential streets inside villages.
 #
-# Residential and living_street are deliberately excluded, and that is a judgement worth
-# stating: including them takes the extract from 169k ways to 511k and the graph from about
-# two million junctions to six, for routes that differ by the few hundred metres at each end
-# where you leave the classified road to reach the village centre. On a 15 km inter-commune
-# distance that is noise, and the memory it costs is not.
+# An earlier version stopped at the classified network to keep the graph small, on the
+# argument that residential streets only change a route in the last few hundred metres. That
+# is true of the distance and false of the topology: where a village connects to its
+# neighbour by an unclassified lane that OSM records as `residential`, leaving it out does
+# not lengthen the route, it removes it — and a commune with no route is a commune the model
+# cannot place sensibly.
 #
-# `unclassified` is not "unknown" in OSM — it is the bottom rung of the classified network,
-# which in rural Romania is most of what connects one commune to the next, so it stays.
+# It costs: 511k ways instead of 169k, roughly six million junctions instead of 2.6.
 ROUTING_CLASSES = (
     "motorway",
     "trunk",
@@ -52,6 +52,9 @@ ROUTING_CLASSES = (
     "secondary",
     "tertiary",
     "unclassified",
+    "residential",
+    "living_street",
+    "road",
     "motorway_link",
     "trunk_link",
     "primary_link",
@@ -74,7 +77,7 @@ SEARCH_LIMIT_M = 60_000.0
 
 # Sources per Dijkstra call. Each call allocates one float64 row per source over every node
 # in the graph, so this trades memory against the number of calls.
-SOURCE_CHUNK = 8
+SOURCE_CHUNK = 4
 
 
 def load_roads() -> gpd.GeoDataFrame:

@@ -34,6 +34,7 @@ import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Final
 
 import geopandas as gpd
 import pandas as pd
@@ -102,6 +103,9 @@ class Data:
     population: dict[str, int]
     county: dict[str, str]
     name: dict[str, str]
+    # Administrative standing, smallest is highest: a municipiu outranks an oras, which
+    # outranks a commune. Used to decide which seat survives a merge.
+    admin_rank: dict[str, int]
     seat_xy: dict[str, tuple[float, float]]
     operating_ron: dict[str, float]
     administrative_ron: dict[str, float]
@@ -123,6 +127,8 @@ class Result:
     under_seeded_counties: dict[str, int] = field(default_factory=dict)
     # Centres bordering their county capital, and whether each survived on its own.
     held: dict[str, bool] = field(default_factory=dict)
+    # Stood-down centre -> the capital allowed to claim it. Nobody else may.
+    reserved_for: dict[str, str] = field(default_factory=dict)
     relaxed_counties: dict[str, float] = field(default_factory=dict)
 
 
@@ -154,6 +160,23 @@ def load_data() -> Data:
     population = dict(zip(uats["siruta"], uats["population"].astype(int), strict=True))
     county = dict(zip(uats["siruta"], uats["county_code"], strict=True))
     name = dict(zip(uats["siruta"], uats["name_uat"], strict=True))
+
+    def _rank(level: str) -> int:
+        text = str(level).lower()
+        if "sector" in text:
+            return 0
+        if "resedinta de judet" in text:
+            return 1
+        if "municipiu" in text:
+            return 2
+        if "oras" in text:
+            return 3
+        return 4
+
+    admin_rank = {
+        siruta: _rank(level)
+        for siruta, level in zip(uats["siruta"], uats["natlevname"], strict=True)
+    }
     seat_xy = {r.siruta: (r.geometry.x, r.geometry.y) for r in seats.itertuples()}
     operating = dict(zip(finance["siruta"], finance["operating_ron"].astype(float), strict=True))
     administrative = dict(
@@ -203,6 +226,7 @@ def load_data() -> Data:
         population=population,
         county=county,
         name=name,
+        admin_rank=admin_rank,
         seat_xy=seat_xy,
         operating_ron=operating,
         administrative_ron=administrative,
@@ -284,19 +308,27 @@ def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, flo
     sliver absorptions it was always meant to be.
     """
     radius = _tier_radius(params, tier)
-    admitted = {
-        target: fraction
-        for target, fraction, seat_inside in data.candidacy.get((radius, seed), ())
-        if fraction >= params.min_overlap or seat_inside
-    }
-    for neighbour in data.neighbours.get(seed, ()):
-        if neighbour in admitted:
-            continue
-        if data.county[neighbour] != data.county[seed]:
-            continue
-        step = data.road_distance.get((seed, neighbour), _distance(data, seed, neighbour))
-        if step <= radius:
-            admitted[neighbour] = 0.0
+
+    # Bucharest is represented by one sector but reaches as the whole city: candidacy is
+    # precomputed per UAT, so Sector 1's buffer alone points north-west and would have the
+    # capital absorbing Chitila and nothing else. The city's reach is the union of its six
+    # sectors' reach.
+    sources = [seed]
+    if tier == TIER_NATIONAL_CAPITAL:
+        sources = sorted(s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE)
+
+    admitted: dict[str, float] = {}
+    for source in sources:
+        for target, fraction, seat_inside in data.candidacy.get((radius, source), ()):
+            if fraction >= params.min_overlap or seat_inside:
+                admitted[target] = max(admitted.get(target, 0.0), fraction)
+    for source in sources:
+        for neighbour in data.neighbours.get(source, ()):
+            if neighbour in admitted or not _may_absorb(data, seed, neighbour):
+                continue
+            step = data.road_distance.get((source, neighbour), _distance(data, source, neighbour))
+            if step <= radius:
+                admitted[neighbour] = 0.0
     return admitted
 
 
@@ -319,6 +351,19 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         elif data.population[siruta] >= params.x:
             result.seeds[siruta] = TIER_POPULATION
 
+    # A centre bordering its own county capital is stood down, and the capital takes it.
+    #
+    # This is what builds a metropolitan area rather than a ring of small rivals: Cumpana
+    # sits against Constanta and is part of that city in every practical sense, so leaving
+    # it as a separate centre describes an administrative fiction. The centre role does not
+    # disappear with it — the candidate is removed from the pool before promotion runs, so
+    # the county fills its quota from a town further out, which is where a second centre is
+    # actually useful.
+    absorbed_into_capital = _capital_shadow(data, params, result)
+    for siruta in absorbed_into_capital:
+        result.seeds.pop(siruta, None)
+    result.held = dict.fromkeys(sorted(absorbed_into_capital), False)
+
     for county_code in sorted(data.by_county):
         # Bucharest is one city, not a county needing a spread of centres. Promotion here
         # was making four of its six sectors into centres in their own right — exactly the
@@ -329,8 +374,16 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         if len(in_county) >= params.n_min:
             continue
 
+        # Towns join the promotion pool whatever their population. The threshold decides who
+        # is *automatically* a centre; promotion exists to fill a county that came up short,
+        # and there a town with a town hall is a better answer than a large commune. Oras
+        # Budesti (7,126) fell below the threshold and so could not even be considered, which
+        # is how Curcani — a commune of 5,301 — came to seat a unit containing it.
         pool = [
-            s for s in data.by_county[county_code] if s in data.absorbers and s not in result.seeds
+            s
+            for s in data.by_county[county_code]
+            if (s in data.absorbers or data.admin_rank[s] <= ADMIN_RANK_ORAS)
+            and s not in result.seeds
         ]
         covered: set[str] = set()
         for seed in in_county:
@@ -344,7 +397,7 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
             # nearest existing centre by road, not in a straight line.
             separation = _county_road_distances(data, county_code, seeds_here) if seeds_here else {}
 
-            best: tuple[int, int, str] | None = None
+            best: tuple[int, int, int, str] | None = None
             best_siruta = None
             for candidate in pool:
                 if seeds_here and r_sep > 0:
@@ -362,7 +415,16 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
                 # rather than raw population is what disperses seeds; ranking by population
                 # would cluster them in whichever corner of the county is densest, which is
                 # the exact failure this step exists to prevent.
-                key = (-gain, -data.population[candidate], candidate)
+                # Coverage first, then administrative standing, then size. Without the
+                # standing term a commune promoted for its coverage outranks a town that
+                # was never promoted, which is how Curcani (a commune of 5,301) came to be
+                # the seat of a unit containing Oras Budesti.
+                key = (
+                    -gain,
+                    data.admin_rank[candidate],
+                    -data.population[candidate],
+                    candidate,
+                )
                 if best is None or key < best:
                     best = key
                     best_siruta = candidate
@@ -399,24 +461,22 @@ def accrete(data: Data, params: Params, result: Result) -> None:
     folds into the capital — the outcome it was being protected from, but only once that has
     been shown to be the right answer rather than an accident of ordering.
     """
-    held = _held_absorbers(data, result)
-    result.held = dict.fromkeys(sorted(held), False)
+    # A stood-down centre is reserved for the capital that shadows it, not handed to
+    # whichever absorber happens to be nearest by road — Cumpana was going south to Eforie
+    # when the whole point of standing it down is that it becomes part of Constanta.
+    #
+    # Reserved, not assigned outright: Cumpana does not touch Constanta, it reaches the city
+    # through Agigea, so assigning it directly produced a unit in two disconnected pieces.
+    # Growth has to arrive over its own territory, which keeps every unit contiguous.
+    result.reserved_for = {
+        siruta: capital
+        for siruta in sorted(result.held)
+        if (capital := _shadowing_capital(data, params, result, siruta)) is not None
+    }
 
-    # Pass 1: everything except the held centres.
-    _grow(data, params, result, sources=[s for s in result.seeds if s not in held], blocked=held)
+    _grow(data, params, result, sources=list(result.seeds), blocked=set())
 
-    # Pass 2: each held centre tries to reach the target from what is left.
-    for absorber in sorted(held, key=lambda a: (-data.population[a], a)):
-        if absorber in result.region_of:
-            continue
-        _grow(data, params, result, sources=[absorber], blocked=set())
-        reached = sum(data.population[m] for m in result.members.get(absorber, [absorber]))
-        result.held[absorber] = reached >= params.p_target
-
-    # Pass 3: a held centre that could not reach the target folds into its capital, taking
-    # whatever it did gather with it. Both are adjacent to the capital, so the capital's
-    # region stays in one piece.
-    for absorber, survived in result.held.items():
+    for absorber, survived in list(result.held.items()):
         if survived:
             continue
         # It may no longer be its own region: another held centre grown earlier in pass 2
@@ -447,6 +507,26 @@ def accrete(data: Data, params: Params, result: Result) -> None:
         result.members[absorber].sort(key=lambda m: (-data.population[m], m))
 
 
+# Bucharest is ringed by Ilfov and by nothing else, so the county line between them cuts
+# through a single continuous city. It is the one place where the no-cross-county rule
+# produces a worse answer than breaking it, and it is broken only here: every other county
+# boundary stays absolute, and only the capital may cross, never a smaller centre.
+BUCHAREST_RING_COUNTY: Final = "IF"
+
+# Administrative rank: sector 0, county seat 1, municipiu 2, oras 3, comuna 4. Anything at
+# or above `oras` is a town rather than a village-based commune.
+ADMIN_RANK_ORAS: Final = 3
+
+
+def _may_absorb(data: Data, absorber: str, uat: str) -> bool:
+    """Whether `absorber` is allowed to take `uat` across whatever boundary lies between."""
+    if data.county[uat] == data.county[absorber]:
+        return True
+    return (
+        data.county[absorber] == BUCHAREST_COUNTY_CODE and data.county[uat] == BUCHAREST_RING_COUNTY
+    )
+
+
 def _county_capital(data: Data, county: str) -> str | None:
     for siruta, code in COUNTY_CAPITAL_SIRUTA.items():
         if code == county and siruta in data.population:
@@ -454,18 +534,82 @@ def _county_capital(data: Data, county: str) -> str | None:
     return None
 
 
-def _held_absorbers(data: Data, result: Result) -> set[str]:
-    """Centres that share a border with their own county capital."""
-    held: set[str] = set()
+def _capital_core(data: Data, params: Params, capital: str, tier: int) -> set[str]:
+    """UATs close enough to a capital that it takes them over rather than competing.
+
+    Deliberately tighter than `_eligible`, which admits a UAT when a tenth of its *area*
+    falls inside the buffer. That is right for growth and wrong for standing a centre down:
+    a quarter of Sighetu Marmatiei's sprawling territory reaches Baia Mare's buffer while
+    the two seats are 38 km apart, and demoting a municipiu of 34,000 on that basis is
+    indefensible. Here the centre's own seat has to be within the radius.
+    """
+    radius = _tier_radius(params, tier)
+    sources = [capital]
+    if tier == TIER_NATIONAL_CAPITAL:
+        sources = sorted(s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE)
+
+    core: set[str] = set()
+    for source in sources:
+        for target, _fraction, seat_inside in data.candidacy.get((radius, source), ()):
+            if seat_inside and _may_absorb(data, capital, target):
+                core.add(target)
+        for neighbour in data.neighbours.get(source, ()):
+            if not _may_absorb(data, capital, neighbour):
+                continue
+            step = data.road_distance.get((source, neighbour), _distance(data, source, neighbour))
+            if step <= radius:
+                core.add(neighbour)
+    return core
+
+
+def _capital_shadow(data: Data, params: Params, result: Result) -> set[str]:
+    """Centres standing inside a capital's reach, which the capital takes over.
+
+    Keyed on the capital's radius rather than on its border. Cumpana is the case that forced
+    it: the commune does not touch Constanta at all — it reaches the city through Agigea —
+    so a border test leaves it a centre in its own right and it ends up absorbed southwards
+    by Eforie. A capital that absorbs "all around it, concentrically" absorbs what is within
+    reach of it, and adjacency is a poor proxy for that.
+
+    Bucharest counts as the capital of the Ilfov communes it reaches. Ilfov's own capital is
+    Buftea, out on the north-west edge, so without this Otopeni, Voluntari and Pantelimon
+    stay centres and claim themselves before the city ever arrives.
+    """
+    reach: dict[str, set[str]] = {}
+    for capital, tier in result.seeds.items():
+        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
+            reach[capital] = _capital_core(data, params, capital, tier)
+
+    shadowed: set[str] = set()
     for absorber, tier in result.seeds.items():
         if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
             continue
-        capital = _county_capital(data, data.county[absorber])
-        if capital is None:
+        for capital, covered in reach.items():
+            if absorber in covered and _may_absorb(data, capital, absorber):
+                shadowed.add(absorber)
+                break
+    return shadowed
+
+
+def _shadowing_capital(data: Data, params: Params, result: Result, siruta: str) -> str | None:
+    """Which capital took `siruta` over: the national capital first, then nearest by road.
+
+    Tier before distance because Chiajna is a Bucharest suburb that borders the city, yet
+    Buftea's seat is marginally closer to it by road. Reserving it for Buftea meant neither
+    capital's growth ever arrived and Chiajna stayed a unit of three on the city's edge.
+    """
+    best: tuple[int, float, str] | None = None
+    for capital, tier in result.seeds.items():
+        if tier not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
             continue
-        if capital in data.neighbours.get(absorber, ()):
-            held.add(absorber)
-    return held
+        if not _may_absorb(data, capital, siruta):
+            continue
+        if siruta not in _capital_core(data, params, capital, tier):
+            continue
+        step = data.road_distance.get((capital, siruta), _distance(data, capital, siruta))
+        if best is None or (tier, step, capital) < best:
+            best = (tier, step, capital)
+    return None if best is None else best[2]
 
 
 def _grow(
@@ -494,7 +638,9 @@ def _grow(
             continue
 
         if uat != absorber:
-            if data.county[uat] != data.county[absorber]:
+            if not _may_absorb(data, absorber, uat):
+                continue
+            if result.reserved_for.get(uat, absorber) != absorber:
                 continue
             # The cap must be checked when claiming, not only when expanding. Stopping
             # expansion at the cap still let the last commune inside it push a neighbour one
@@ -692,9 +838,17 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
                     distance_cache[seat] = cached
                 return cached
 
-            def standing(unit: str) -> tuple[int, int, str]:
-                tier = result.seeds.get(unit, TIER_PROMOTED + 1)
-                return (tier, -data.population[unit], unit)
+            def standing(unit: str) -> tuple[int, int, int, str]:
+                # Administrative status first. A commune promoted to a centre used to
+                # outrank a town that was never one, which made Curcani — a commune of
+                # 5,301 — the seat of a unit containing Oras Budesti. What a place *is*
+                # should outrank what this run happened to make it.
+                return (
+                    data.admin_rank[unit],
+                    result.seeds.get(unit, TIER_PROMOTED + 1),
+                    -data.population[unit],
+                    unit,
+                )
 
             here = reach_from(absorber)
 
@@ -761,6 +915,63 @@ def clark_evans(data: Data, seeds: list[str], county_uats: list[str]) -> float |
         return None
     expected = 0.5 / math.sqrt(len(seeds) / area)
     return observed / expected if expected else None
+
+
+def reseat_units(data: Data, params: Params, result: Result) -> None:
+    """Give each unit the most significant town in it as its seat.
+
+    Which communes group together is settled by roads and radii and is not touched here;
+    this decides only which member the unit is named after and administered from. Curcani is
+    the case: a commune of 5,301 promoted for its coverage ended up seating a unit that
+    contains Oras Budesti (7,126), so the map showed a town governed from a village.
+
+    Standing is the same ordering consolidation uses to pick a survivor — administrative
+    rank, then how the centre was seeded, then population.
+
+    A re-election has to keep the distance cap: growth enforced it against the old seat, and
+    moving the seat can put members beyond it. Oras Murgeni is the case — the better town
+    administratively, but 73.7 km from members the cap allows at 50 km. Where no candidate
+    holds the cap the unit keeps the seat it grew from.
+    """
+
+    def standing(unit: str) -> tuple[int, int, int, str]:
+        return (
+            data.admin_rank[unit],
+            result.seeds.get(unit, TIER_PROMOTED + 1),
+            -data.population[unit],
+            unit,
+        )
+
+    for old_seat in sorted(result.members):
+        members = result.members[old_seat]
+        county = data.county[old_seat]
+
+        def holds_the_cap(
+            candidate: str, members: list[str] = members, county: str = county
+        ) -> bool:
+            if params.max_road_m <= 0:
+                return True
+            reach = _county_road_distances(data, county, [candidate])
+            # Members in another county are the Bucharest ring, which this county-scoped
+            # measure cannot see; the cap is not enforced across that one line.
+            return all(
+                reach.get(m, math.inf) <= params.max_road_m
+                for m in members
+                if data.county[m] == county
+            )
+
+        ranked = sorted(members, key=standing)
+        new_seat = next((c for c in ranked if holds_the_cap(c)), old_seat)
+        if new_seat == old_seat:
+            continue
+        result.members[new_seat] = result.members.pop(old_seat)
+        for member in members:
+            result.region_of[member] = new_seat
+        if old_seat in result.orphan_regions:
+            result.orphan_regions.discard(old_seat)
+            result.orphan_regions.add(new_seat)
+        if old_seat in result.seeds:
+            result.seeds[new_seat] = result.seeds.pop(old_seat)
 
 
 def summarise(data: Data, params: Params, result: Result) -> dict:
@@ -850,7 +1061,14 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
     orphan_tier(data, params, result)
     # Belt and braces: whatever route the UAT took, it ends up in exactly one region.
     _keep_unclaimed_as_themselves(data, result)
+    # Twice, and the order matters. Consolidation decides which units merge by measuring
+    # road distance from the seat that survives, so it has to see the real seats: run only
+    # afterwards, it left Fundeni short of the target next to a unit it could have joined,
+    # because the merge was judged from Curcani and the seat then became Oras Budesti.
+    # Merging changes the membership, so the seats are settled again on the result.
+    reseat_units(data, params, result)
     consolidate_to_target(data, params, result)
+    reseat_units(data, params, result)
     return result, summarise(data, params, result)
 
 

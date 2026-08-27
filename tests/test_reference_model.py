@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 278
+SNAPSHOT_DEFAULT_REGIONS = 269
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -64,6 +64,15 @@ class TestSnapshot:
         assert summary["unassigned"] == 0
 
 
+def counties_allowed(counties: set[str]) -> bool:
+    """Bucharest and its Ilfov ring are the only counties a single unit may span.
+
+    Everything else in the model is county-bound; the capital is the one place where the
+    line falls inside the built-up area rather than around it.
+    """
+    return counties == {"B", "IF"} or len(counties) == 1
+
+
 class TestProperties:
     def test_every_uat_belongs_to_exactly_one_region(self, data, default_run) -> None:
         result, _ = default_run
@@ -76,7 +85,7 @@ class TestProperties:
         offenders = {
             absorber: {data.county[m] for m in region}
             for absorber, region in result.members.items()
-            if len({data.county[m] for m in region}) > 1
+            if not counties_allowed({data.county[m] for m in region})
         }
         assert not offenders
 
@@ -115,14 +124,23 @@ class TestProperties:
 class TestHeldAbsorbers:
     """Centres bordering their county capital are held back, then judged on their merits."""
 
-    def test_held_centres_are_capital_neighbours_only(self, data, default_run) -> None:
+    def test_held_centres_stand_inside_a_capital_reach(self, data, default_run) -> None:
+        """Held used to mean "borders a capital"; it now means "stands inside its reach".
+
+        Cumpana forced the change: it does not touch Constanta, it reaches the city through
+        Agigea, so a border test left it a centre and Eforie took it southwards.
+        """
         from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
 
         result, _ = default_run
         capitals = {s for s in COUNTY_CAPITAL_SIRUTA if s in data.population}
+        assert result.held, "no centre was held at all"
         for absorber in result.held:
-            neighbours = set(data.neighbours.get(absorber, ()))
-            assert neighbours & capitals, f"{absorber} was held without bordering a capital"
+            capital = result.reserved_for.get(absorber)
+            assert capital is not None, f"{absorber} was held but reserved for nobody"
+            assert capital in capitals or data.county[capital] == "B", (
+                f"{absorber} was reserved for {capital}, which is not a capital"
+            )
 
     def test_a_failed_hold_is_absorbed_unless_the_cap_forbids_it(self, data, default_run) -> None:
         """A held centre that could not reach the target is absorbed by someone.
@@ -140,11 +158,19 @@ class TestHeldAbsorbers:
             if survived:
                 continue
             region = result.region_of[absorber]
-            assert data.county[region] == data.county[absorber]
+            assert counties_allowed({data.county[region], data.county[absorber]})
             if region == absorber:
-                # Allowed only when folding would have breached the distance cap: a held
-                # centre gathers up to the cap from itself, so folding it wholesale can put
-                # communes twice the cap from the capital.
+                # Two ways a held centre legitimately keeps its own region.
+                #
+                # One: it is reserved for a capital whose growth never actually arrived —
+                # reservation stops anyone *else* taking it, and if the capital cannot reach
+                # it over its own territory the centre simply stands.
+                capital = result.reserved_for.get(absorber)
+                if capital is not None and result.region_of.get(capital) != absorber:
+                    continue
+                # Two: folding would have breached the distance cap. A held centre gathers up
+                # to the cap from itself, so folding it wholesale can put communes twice the
+                # cap from the capital.
                 capital = _county_capital(data, data.county[absorber])
                 assert capital is not None
                 reach = _county_road_distances(data, data.county[absorber], [capital])
@@ -179,10 +205,22 @@ class TestConsolidationIsLocal:
             for member in members:
                 if member == seat:
                     continue
-                member_tier = result.seeds.get(member, 99)
-                assert member_tier >= seat_tier, f"{member} outranks its seat {seat}"
-                if member_tier == seat_tier:
-                    assert data.population[member] <= data.population[seat]
+                if member not in result.seeds:
+                    # A member that was never a centre makes no claim on the seat. Oras
+                    # Racari (6,306) sits under Crevedia (8,811) because Crevedia cleared
+                    # the population threshold and Racari did not; that is the threshold
+                    # doing its job, not a seat chosen wrongly.
+                    continue
+                # Among members that *were* centres, the seat must have the best standing —
+                # the same ordering consolidation uses to pick a survivor.
+                member_tier = result.seeds[member]
+                assert (
+                    data.admin_rank[seat],
+                    seat_tier,
+                    -data.population[seat],
+                ) <= (data.admin_rank[member], member_tier, -data.population[member]), (
+                    f"{member} outranks its seat {seat}"
+                )
 
     def test_merged_partner_is_the_nearest_by_road(self, data) -> None:
         """Units should not span a county because of a chain of smallest-first merges.
@@ -195,7 +233,7 @@ class TestConsolidationIsLocal:
             if len(members) < 2:
                 continue
             county = data.county[seat]
-            assert all(data.county[m] == county for m in members)
+            assert counties_allowed({data.county[m] for m in members} | {county})
             # Every member must be reachable from the seat without leaving the unit, which
             # a cross-county chain of convenience mergers would break.
             wanted = set(members)
@@ -247,7 +285,13 @@ class TestMinimumTargetPopulation:
         result, _ = run(data, params)
 
         def standing(unit: str) -> tuple[int, int, str]:
-            return (result.seeds.get(unit, 99), -data.population[unit], unit)
+            # Must mirror the model's own ordering, which now leads on administrative rank.
+            return (
+                data.admin_rank[unit],
+                result.seeds.get(unit, 99),
+                -data.population[unit],
+                unit,
+            )
 
         for absorber, members in result.members.items():
             if sum(data.population[m] for m in members) >= params.p_target:
@@ -275,7 +319,7 @@ class TestMinimumTargetPopulation:
         # rather than individual communes.
         result, _ = run(data, Params(p_target=target))
         for members in result.members.values():
-            assert len({data.county[m] for m in members}) == 1
+            assert counties_allowed({data.county[m] for m in members})
 
 
 class TestParameterResponse:
