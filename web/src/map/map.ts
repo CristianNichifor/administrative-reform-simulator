@@ -318,15 +318,22 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     source: 'seats',
     layout: { visibility: 'none' },
     paint: {
-      // County capitals are gold, other centres white: the distinction a reader asks for
-      // first is "which of these is the capital", and it should not need a click.
+      // Capitals gold, other centres white, and anything that is not a centre hollow.
+      //
+      // A leftover is not an absorber and must not look like one. Casimcea is 2,555 people
+      // that nothing could take — its neighbours are all in Constanta county and merging
+      // with Babadag would breach the distance cap — so it ends up seating a unit of two and
+      // getting a dot. Drawn in pale sand at 2.2 px against a centre's white at 3.4 px, that
+      // dot was indistinguishable from a real centre and read as one. Hollow says "this is
+      // where a unit is administered from", solid says "this town pulled its neighbours in",
+      // and those are different claims.
       'circle-color': [
         'match',
         ['coalesce', ['feature-state', 'kind'], -1],
         SEAT_KIND.CAPITAL, CAPITAL_COLOUR,
         SEAT_KIND.CENTRE, SEAT_COLOUR,
-        SEAT_KIND.ORPHAN, ORPHAN_SEAT_COLOUR,
-        SEAT_KIND.UNCHANGED, UNCHANGED_SEAT_COLOUR,
+        SEAT_KIND.ORPHAN, '#12161c',
+        SEAT_KIND.UNCHANGED, '#12161c',
         'rgba(0,0,0,0)',
       ],
       // Orphan and unchanged seats are drawn smaller: they are the administration that
@@ -357,8 +364,20 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
           5,
         ],
       ],
-      'circle-stroke-color': '#0f1216',
-      'circle-stroke-width': 1.4,
+      'circle-stroke-color': [
+        'match',
+        ['coalesce', ['feature-state', 'kind'], -1],
+        SEAT_KIND.ORPHAN, ORPHAN_SEAT_COLOUR,
+        SEAT_KIND.UNCHANGED, UNCHANGED_SEAT_COLOUR,
+        '#0f1216',
+      ],
+      'circle-stroke-width': [
+        'match',
+        ['coalesce', ['feature-state', 'kind'], -1],
+        SEAT_KIND.ORPHAN, 1.8,
+        SEAT_KIND.UNCHANGED, 1.8,
+        1.4,
+      ],
       'circle-opacity': ['case', ['>=', ['coalesce', ['feature-state', 'kind'], -1], 0], 1, 0],
       'circle-stroke-opacity': [
         'case', ['>=', ['coalesce', ['feature-state', 'kind'], -1], 0], 1, 0,
