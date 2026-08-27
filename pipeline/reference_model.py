@@ -494,7 +494,17 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
 
 
 def accrete(data: Data, params: Params, result: Result) -> None:
-    """Grow every centre outward along the road network in one pass.
+    """Grow every centre outward along the road network, one ring at a time.
+
+    **Every centre takes its first ring before any centre takes a second.** The heap is
+    ordered by ring first and by road distance only within a ring, which is the difference
+    between "absorb from your neighbours, then look further" and a single race in which
+    whoever is nearest to the most communes sweeps the county. Ordered by distance alone, a
+    large centre reached past a small one's own doorstep and the small one starved: 56 units
+    under 25,000 sat next to units over 55,000, with nothing left beside them to take.
+
+    Within a ring the nearest by road wins, then the higher tier, then the larger centre, so
+    a commune between two centres still goes to the one it is actually closest to.
 
     **Capitals are not capped.** A county capital absorbs whatever its radius admits. The
     population target governs the smaller centres only: Tulcea alone is 65,624, already past
@@ -704,13 +714,13 @@ def _grow(
     """
     heap: list[tuple[float, int, int, str, str]] = []
     for seed in sorted(sources):
-        heapq.heappush(heap, (0.0, result.seeds[seed], -data.population[seed], seed, seed))
+        heapq.heappush(heap, (0, 0.0, result.seeds[seed], -data.population[seed], seed, seed))
 
     eligible = {seed: _eligible(data, params, seed, result.seeds[seed]) for seed in sources}
     gathered = {seed: 0 for seed in sources}
 
     while heap:
-        distance, tier, neg_population, absorber, uat = heapq.heappop(heap)
+        ring, distance, tier, neg_population, absorber, uat = heapq.heappop(heap)
         if uat in result.region_of or uat in blocked:
             continue
 
@@ -725,11 +735,18 @@ def _grow(
             # Reșița reached Teregova at 72.9 km against a 35 km cap.
             if params.max_road_m > 0 and distance > params.max_road_m:
                 continue
-            if uat not in eligible[absorber]:
-                continue
-            # Capitals take whatever their radius admits; everyone else stops once they
-            # have enough people, leaving the rest to their neighbours.
             capped = tier not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
+            # A centre still short of the target keeps going past its radius.
+            #
+            # The radius says how far a centre *pulls* — how far it reaches while it still
+            # has a choice. It should not be what stops a centre that has not yet gathered
+            # enough people to be worth creating: that is the target's job. With the radius
+            # binding, small centres ran out of eligible neighbours at 10 km and stopped at
+            # 9,000 while a neighbour reached 141,000, and there was nothing left beside them
+            # to take. The road cap still bounds it, so "keeps going" is never unbounded.
+            short = capped and params.p_target > 0 and gathered[absorber] < params.p_target
+            if uat not in eligible[absorber] and not short:
+                continue
             if capped and params.p_target > 0 and gathered[absorber] >= params.p_target:
                 continue
 
@@ -746,7 +763,9 @@ def _grow(
             if neighbour in result.region_of or neighbour in blocked:
                 continue
             step = data.road_distance.get((uat, neighbour), _distance(data, uat, neighbour))
-            heapq.heappush(heap, (distance + step, tier, neg_population, absorber, neighbour))
+            heapq.heappush(
+                heap, (ring + 1, distance + step, tier, neg_population, absorber, neighbour)
+            )
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:
@@ -986,6 +1005,7 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             # centre reaches" must not increase the number of units when you turn it up.
             still_small = [o for o in reachable if region_population(o) < params.p_target]
             not_a_capital = [o for o in reachable if o not in COUNTY_CAPITAL_SIRUTA]
+
             choices = still_small or not_a_capital
             if not choices:
                 continue

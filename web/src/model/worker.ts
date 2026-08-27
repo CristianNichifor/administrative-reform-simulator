@@ -127,9 +127,11 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
     if (message.type === 'init') {
       data = await load(message.baseUrl);
       // Identity assignment: each commune is its own unit, coloured so neighbours differ.
+      // The county rule cannot hold here — a county has eighty communes — so this falls back
+      // to the touching rule, which is the only one that means anything on today's map.
       const identity = new Uint16Array(data.uatCount);
       for (let i = 0; i < data.uatCount; i += 1) identity[i] = i;
-      const currentColourOf = assignUnitColours(data, identity, new Uint8Array(data.uatCount));
+      const currentColourOf = assignUnitColours(data, identity);
 
       const ready: ReadyMessage = {
         type: 'ready',
@@ -191,7 +193,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         const unit = result.regionOf[i]!;
         if (result.tierOf[unit] === -1) isOrphanUnit[unit] = 1;
       }
-      const colourOf = assignUnitColours(data, result.regionOf, isOrphanUnit);
+      const colourOf = assignUnitColours(data, result.regionOf);
       const elapsedMs = performance.now() - started;
 
       const payload: ResultMessage = {

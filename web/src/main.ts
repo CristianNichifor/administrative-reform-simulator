@@ -24,7 +24,7 @@ import {
   UNCHANGED_COLOUR,
   type Overlay,
 } from './map/map';
-import { CLUSTER_PALETTE, UNIT_PALETTE } from './model/colour';
+import { PALETTE } from './model/colour';
 import { DEFAULT_PARAMS, REASON, type Params, type ViewMode } from './model/types';
 import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
@@ -286,8 +286,8 @@ async function boot(): Promise<void> {
       [SEAT_COLOUR, strings.legendAbsorber, true],
       [ORPHAN_SEAT_COLOUR, strings.legendOrphanSeat, true],
       [UNCHANGED_SEAT_COLOUR, strings.legendUnchangedSeat, true],
-      [UNIT_PALETTE[0]!, strings.legendAbsorbed],
-      [CLUSTER_PALETTE[0]!, strings.legendOrphan],
+      [PALETTE[6]!, strings.legendAbsorbed],
+      [PALETTE[0]!, strings.legendOrphan],
       [UNCHANGED_COLOUR, strings.legendUnchanged],
     ];
     el('#legend').innerHTML =

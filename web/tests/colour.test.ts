@@ -11,7 +11,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { assignUnitColours, CLUSTER_PALETTE, PALETTE, UNIT_PALETTE } from '../src/model/colour';
+import { assignUnitColours, PALETTE } from '../src/model/colour';
 import { decode } from '../src/model/load';
 import { runModel } from '../src/model/model';
 import { DEFAULT_PARAMS, type ModelData, type Params } from '../src/model/types';
@@ -45,7 +45,7 @@ function colourFor(params: Params) {
     const unit = result.regionOf[i]!;
     if (result.tierOf[unit] === -1) isOrphanUnit[unit] = 1;
   }
-  return { result, colourOf: assignUnitColours(data, result.regionOf, isOrphanUnit) };
+  return { result, colourOf: assignUnitColours(data, result.regionOf) };
 }
 
 /**
@@ -109,23 +109,6 @@ describe('unit colouring', () => {
     }
   });
 
-  it('clusters keep the warm family unless a neighbour forces otherwise', () => {
-    const { result, colourOf } = colourFor(DEFAULT_PARAMS);
-    const warmStart = UNIT_PALETTE.length;
-    let clusters = 0;
-    let warm = 0;
-    for (let i = 0; i < data.uatCount; i += 1) {
-      if (result.regionOf[i] !== i) continue;
-      if (result.tierOf[i] !== -1) continue;
-      clusters += 1;
-      if (colourOf[i]! >= warmStart) warm += 1;
-    }
-    expect(clusters).toBeGreaterThan(0);
-    // Borrowing from the cool family is allowed but should stay rare: a matching pair of
-    // neighbours is always worse than a cluster drawn in the wrong family.
-    expect(warm / clusters).toBeGreaterThan(0.8);
-  });
-
   it('is deterministic', () => {
     const a = colourFor(DEFAULT_PARAMS).colourOf;
     const b = colourFor(DEFAULT_PARAMS).colourOf;
@@ -135,7 +118,7 @@ describe('unit colouring', () => {
   it('uses only palette entries that exist', () => {
     const { colourOf } = colourFor(DEFAULT_PARAMS);
     for (const c of colourOf) expect(PALETTE[c]).toBeTypeOf('string');
-    expect(PALETTE.length).toBe(UNIT_PALETTE.length + CLUSTER_PALETTE.length);
+    expect(PALETTE.length).toBe(11);
   });
 });
 
@@ -214,5 +197,56 @@ describe('the palette', () => {
       }
     }
     expect(tooClose).toEqual([]);
+  });
+});
+
+describe('no colour appears twice inside a county', () => {
+  it.each([
+    ['default', DEFAULT_PARAMS],
+    ['large target', { ...DEFAULT_PARAMS, pTarget: 100_000 }],
+    ['wide radii', { ...DEFAULT_PARAMS, rCapM: 25_000, rTownM: 25_000 }],
+  ])('holds at %s', (_label, params) => {
+    const { result, colourOf } = colourFor(params as Params);
+    const byCounty = new Map<number, Map<number, number[]>>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const unit = result.regionOf[i]!;
+      const county = data.countyOf[unit]!;
+      let seen = byCounty.get(county);
+      if (!seen) {
+        seen = new Map();
+        byCounty.set(county, seen);
+      }
+      const colour = colourOf[i]!;
+      const units = seen.get(colour) ?? [];
+      if (!units.includes(unit)) units.push(unit);
+      seen.set(colour, units);
+    }
+    const repeats: string[] = [];
+    for (const [county, seen] of byCounty) {
+      for (const [, units] of seen) {
+        if (units.length > 1) {
+          repeats.push(
+            `${data.attributes.county[units[0]!]}: ${units.map((u) => data.attributes.name[u]).join(' / ')}`,
+          );
+        }
+      }
+      void county;
+    }
+    expect(repeats.slice(0, 6)).toEqual([]);
+  });
+
+  it('gives up the county rule only when the palette cannot cover it', () => {
+    // With the target off a single county holds thirty units and thirty distinguishable
+    // colours do not exist, so duplicates inside a county are unavoidable. What must still
+    // hold is the rule that always can: nothing matches anything it touches.
+    const params = { ...DEFAULT_PARAMS, pTarget: 0 };
+    const { result, colourOf } = colourFor(params);
+    for (let i = 0; i < data.uatCount; i += 1) {
+      for (let e = data.touchStart[i]!; e < data.touchStart[i + 1]!; e += 1) {
+        const j = data.touching[e]!;
+        if (result.regionOf[i] === result.regionOf[j]) continue;
+        expect(colourOf[i]).not.toBe(colourOf[j]);
+      }
+    }
   });
 });

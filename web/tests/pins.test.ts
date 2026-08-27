@@ -309,13 +309,12 @@ describe('why a unit could not merge', () => {
     expect(blocker?.kind).toBe('cap');
     const needed = (blocker as { metres: number }).metres;
 
-    // The number it reports is the answer to "what would I have to set the cap to", so above
-    // that cap the distance must stop being the reason. Whether the unit then actually merges
-    // depends on the rest of consolidation — a capital neighbour still refuses — so the claim
-    // under test is about the cap, not about the outcome.
+    // The number it reports is the answer to "what would I have to set the cap to". Held
+    // against the *same* map: re-running the model with a higher cap produces a different
+    // map, in which some other configuration can legitimately be cap-blocked again, so
+    // re-running would not test the claim.
     const raisedParams = { ...DEFAULT_PARAMS, maxRoadM: Math.ceil(needed) + 1000 };
-    const raised = runModel(data, raisedParams);
-    const after = mergeBlocker(data, raisedParams, raised.regionOf, raised.regionOf[chilia]!);
+    const after = mergeBlocker(data, raisedParams, result.regionOf, chilia);
     expect(after?.kind).not.toBe('cap');
   });
 });

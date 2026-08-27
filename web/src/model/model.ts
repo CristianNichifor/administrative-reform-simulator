@@ -534,10 +534,16 @@ function grow(
 
   // Binary heap keyed on the whole tie-break tuple: distance, then tier, then population
   // descending, then index. Sorting an array per push would dominate the frame budget.
+  const hr: number[] = [];
   const hd: number[] = [];
   const ha: number[] = [];
   const hu: number[] = [];
   const better = (i: number, j: number): boolean => {
+    // Ring first: every centre takes its first ring before any centre takes a second.
+    // Ordered by distance alone, a large centre reached past a small one's own doorstep and
+    // the small one starved — 56 units under 25,000 sat beside units over 55,000 with
+    // nothing left to take. Within a ring the nearest by road still wins.
+    if (hr[i] !== hr[j]) return hr[i]! < hr[j]!;
     if (hd[i] !== hd[j]) return hd[i]! < hd[j]!;
     const ai = ha[i]!;
     const aj = ha[j]!;
@@ -547,12 +553,13 @@ function grow(
     return hu[i]! < hu[j]!;
   };
   const swap = (i: number, j: number): void => {
+    [hr[i], hr[j]] = [hr[j]!, hr[i]!];
     [hd[i], hd[j]] = [hd[j]!, hd[i]!];
     [ha[i], ha[j]] = [ha[j]!, ha[i]!];
     [hu[i], hu[j]] = [hu[j]!, hu[i]!];
   };
-  const push = (d: number, a: number, u: number): void => {
-    hd.push(d); ha.push(a); hu.push(u);
+  const push = (r: number, d: number, a: number, u: number): void => {
+    hr.push(r); hd.push(d); ha.push(a); hu.push(u);
     let i = hd.length - 1;
     while (i > 0) {
       const parent = (i - 1) >> 1;
@@ -561,10 +568,10 @@ function grow(
       i = parent;
     }
   };
-  const pop = (): [number, number, number] => {
-    const top: [number, number, number] = [hd[0]!, ha[0]!, hu[0]!];
+  const pop = (): [number, number, number, number] => {
+    const top: [number, number, number, number] = [hr[0]!, hd[0]!, ha[0]!, hu[0]!];
     swap(0, hd.length - 1);
-    hd.pop(); ha.pop(); hu.pop();
+    hr.pop(); hd.pop(); ha.pop(); hu.pop();
     let i = 0;
     for (;;) {
       const l = 2 * i + 1;
@@ -579,10 +586,10 @@ function grow(
     return top;
   };
 
-  for (const seed of [...sources].sort((a, b) => a - b)) push(0, seed, seed);
+  for (const seed of [...sources].sort((a, b) => a - b)) push(0, 0, seed, seed);
 
   while (hd.length > 0) {
-    const [distance, absorber, uat] = pop();
+    const [ring, distance, absorber, uat] = pop();
     if (regionOf[uat] !== NO_REGION || blocked.has(uat)) continue;
     const tier = tierOf[absorber]!;
 
@@ -600,12 +607,15 @@ function grow(
       // a 35 km cap that way.
       if (params.maxRoadM > 0 && distance > params.maxRoadM) continue;
       const admitted = eligible.get(absorber)!;
-      if (!admitted.has(uat)) continue;
-      // Capitals take whatever their radius admits; everyone else stops once they have
-      // enough people, leaving the rest to their neighbours.
-      if (!isCapitalTier(tier) && params.pTarget > 0 && gathered.get(absorber)! >= params.pTarget) {
-        continue;
-      }
+      const capped = !isCapitalTier(tier);
+      // A centre still short of the target keeps going past its radius. The radius says how
+      // far a centre pulls while it still has a choice; it should not be what stops a centre
+      // that has not yet gathered enough people to be worth creating. With the radius
+      // binding, small centres ran out of eligible neighbours at 10 km and stopped at 9,000
+      // beside a neighbour of 141,000. The road cap still bounds it.
+      const short = capped && params.pTarget > 0 && gathered.get(absorber)! < params.pTarget;
+      if (!admitted.has(uat) && !short) continue;
+      if (capped && params.pTarget > 0 && gathered.get(absorber)! >= params.pTarget) continue;
       const pct = admitted.get(uat)!;
       overlapOf[uat] = pct;
       reasonOf[uat] =
@@ -635,7 +645,7 @@ function grow(
       if (!mayAbsorb(data, absorber, nb)) continue;
       const next = distance + data.neighbourRoadM[e]!;
       if (params.maxRoadM > 0 && next > params.maxRoadM) continue;
-      push(next, absorber, nb);
+      push(ring + 1, next, absorber, nb);
     }
   }
 }

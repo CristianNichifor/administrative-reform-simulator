@@ -116,6 +116,18 @@ because a wider radius satisfies more units and each one it satisfies stops acce
 neighbours. A slider labelled "how far a centre reaches" must not increase the number of units
 when you turn it up.
 
+*Every centre takes its first ring before any centre takes a second.* Growth is ordered by
+ring first and by road distance only within a ring. Ordered by distance alone it was a single
+race, and a large centre reached past a small one's own doorstep: 56 units under 25,000 sat
+beside units over 55,000 with nothing left next to them to take. Within a ring the nearest by
+road still wins, so a commune between two centres goes to the one it is closest to.
+
+*A centre still short of the target keeps going past its radius.* The radius says how far a
+centre pulls while it still has a choice; it is not what should stop a centre that has not yet
+gathered enough people to be worth creating. With the radius binding, small centres ran out of
+eligible neighbours at 10 km and stopped at 9,000 next to a neighbour of 141,000. The road cap
+still bounds it, so "keeps going" is never unbounded.
+
 *A county capital takes the ring that borders it, and nothing beyond.* Not a radius: the
 radius does not mean what its name suggests. Candidacy is measured as area overlap against a
 buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
@@ -424,24 +436,30 @@ Source, data reports and licence: see the repository.
 
 ## Reading the map
 
-**No two units that touch share a colour.** The constraint runs over every shared border,
-whether or not a road crosses it, and it deliberately crosses county lines: two units either
-side of a county boundary touch on screen, and if they match the boundary between them
-disappears.
+**No colour appears twice inside a county, and no two units that touch ever match.**
 
-That last part was wrong until recently. The colouring walked the *road* graph — the 5,902
-borders a road crosses — rather than all 9,281 shared borders. Sulina, Crișan and Chilia
-Veche are three separate units in the Delta with no road between them, so the colouring
-believed they were not neighbours and drew all three in one block of orange, which read as a
-single unit with three seat dots in it. The seats were right; the colour was not.
+Those are two different rules and they are not equally satisfiable. The county rule is what a
+reader actually uses — two same-coloured units at opposite ends of one county still read as
+one thing when you are looking at that county — and the busiest county holds eleven units, so
+eleven colours are needed and eleven are enough. The touching rule crosses county lines,
+because two units either side of a boundary touch on screen and the boundary between them
+disappears if they match.
 
-**The twelve colours are chosen by search, not by eye.** The palette they replaced had
-twenty hand-picked entries, several of them near-duplicates: two olive-greens 5.0 apart in
-CIELAB, a green and an emerald 9.0 apart, two indigos 8.1 apart. Adjacent units drawn in
-those pairs are indistinguishable. These twelve come from a farthest-point search over vivid
-hues and the closest pair sits 32.8 apart, which a test enforces — the palette should not be
-hand-edited, because hand-editing is how the near-duplicates got in. Greedy colouring never
-needs more than six of them at any slider setting.
+Where the two conflict the touching rule wins, because it can always be met. With the
+population target switched off a single county holds thirty units, and thirty colours a reader
+can tell apart do not exist; there the county rule is given up unit by unit rather than
+allowing two neighbours to match.
+
+**The eleven colours are all different hues, not shades.** Chosen by search under two
+constraints at once: at least 32 degrees of hue between any pair, and maximum perceptual
+distance subject to that. The closest pair sits 25.3 apart in CIELAB and lightness runs from
+40 to 83, so they separate by brightness as well as by hue. Two hand-picked palettes preceded
+this one and both contained near-duplicates — two olive-greens 5.0 apart, then two blues that
+differed only in lightness. Hue separation is the constraint that prevents it, and eyeballing
+does not enforce it. The palette is not editable by hand.
+
+Cluster units no longer have a colour family of their own: all eleven are needed for the
+county rule, so a cluster is marked by its badge in the panel instead.
 
 **Hovering or selecting a commune outlines its county.** The county boundary is the hardest
 constraint in the model, so knowing which county you are looking at explains more of the

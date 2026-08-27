@@ -37,78 +37,148 @@ import type { ModelData } from './types';
  * Vivid rather than muted, deliberately. On a dark basemap a low-saturation palette reads
  * as a single grey-blue wash from any distance.
  */
-export const UNIT_PALETTE = [
-  '#5c9ee0', // blue
-  '#4e68d0', // indigo
-  '#24bc75', // emerald
-  '#4ec3d0', // cyan
-  '#a5c133', // lime
-  '#c133c1', // magenta
-  '#33c133', // green
-  '#d06cb6', // orchid
-];
+/**
+ * Give every resulting unit a colour, under two rules.
+ *
+ *   - **No colour appears twice inside a county.** Not "no two touching units": a county is
+ *     the unit of comparison a reader actually uses, and two same-coloured units at opposite
+ *     ends of one county still read as one thing when you are looking at that county.
+ *   - **No two units that touch share a colour**, including across county lines. Two units
+ *     either side of a county boundary touch on screen, and if they match the boundary
+ *     between them disappears.
+ *
+ * The first rule makes every county a clique in the constraint graph. The busiest county has
+ * eleven units, so eleven colours are needed and eleven are enough — measured, not guessed.
+ * Units are visited in descending constraint order, which is what achieves eleven; visiting
+ * them by index needs more.
+ *
+ * Deterministic: the visit order breaks ties by index, so the same scenario always produces
+ * the same map.
+ */
 
-/** Clusters of small communes, which follow a different rule and should stay recognisable. */
-export const CLUSTER_PALETTE = [
-  '#c15733', // burnt orange
-  '#c19733', // gold
-  '#e05c77', // rose
-  '#ca987d', // tan
+/**
+ * Eleven colours, every one a different hue.
+ *
+ * Chosen by search under two constraints at once: at least 32 degrees of hue between any
+ * pair, so no two are shades of the same colour, and maximum perceptual distance subject to
+ * that. The closest pair sits 25.3 apart in CIELAB and lightness runs from 40 to 83, which
+ * keeps them apart on a dark basemap by brightness as well as by hue.
+ *
+ * This is not editable by hand. Two hand-picked palettes preceded it and both contained
+ * near-duplicates — two olive-greens 5.0 apart, two blues that differed only in lightness.
+ * Hue separation is the constraint that stops that happening, and eyeballing does not
+ * enforce it.
+ *
+ * There is no second family for cluster units any more. All eleven are needed to satisfy the
+ * county rule, so a cluster is identified by its badge in the panel rather than by hue.
+ */
+export const PALETTE = [
+  '#c64a39', // red
+  '#ddc088', // sand
+  '#a9c639', // lime
+  '#9ddd88', // pale green
+  '#39c663', // green
+  '#88ddcf', // aqua
+  '#398fc6', // blue
+  '#888edd', // periwinkle
+  '#7d39c6', // violet
+  '#dd88da', // orchid
+  '#c63976', // magenta
 ];
-
-export const PALETTE = [...UNIT_PALETTE, ...CLUSTER_PALETTE];
-const UNIT = UNIT_PALETTE.map((_, i) => i);
-const CLUSTER = CLUSTER_PALETTE.map((_, i) => UNIT_PALETTE.length + i);
 
 /**
  * Palette index for every UAT, taken from the unit it belongs to.
  *
- * @param isOrphanUnit indexed by unit seat, 1 where the unit came from the orphan tier.
+ * Cluster units no longer take a colour family of their own: all eleven colours are needed
+ * to keep a county's units distinct, so a cluster is marked by its badge in the panel.
  */
-export function assignUnitColours(
-  data: ModelData,
-  regionOf: Uint16Array,
-  isOrphanUnit: Uint8Array,
-): Uint8Array {
-  // Which units touch which, following commune borders regardless of county.
-  const neighbours = new Map<number, Set<number>>();
+export function assignUnitColours(data: ModelData, regionOf: Uint16Array): Uint8Array {
   const units: number[] = [];
+  const seen = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) {
     const unit = regionOf[i]!;
-    if (!neighbours.has(unit)) {
-      neighbours.set(unit, new Set());
+    if (!seen.has(unit)) {
+      seen.add(unit);
       units.push(unit);
     }
   }
-  for (let i = 0; i < data.uatCount; i += 1) {
-    const unit = regionOf[i]!;
-    // The touching graph, not the model's. A border with no road across it is still a
-    // border on screen: Sulina, Crisan and Chilia Veche are three separate units with no
-    // road between them, and colouring from the road graph drew all three in one orange
-    // block that read as a single unit.
-    for (let e = data.touchStart[i]!; e < data.touchStart[i + 1]!; e += 1) {
-      const other = regionOf[data.touching[e]!]!;
-      if (other !== unit) neighbours.get(unit)!.add(other);
+
+  // Touching is absolute; same-county is a strong preference. They are kept apart because
+  // they are not equally satisfiable: with the population target switched off a single
+  // county can hold thirty units, and thirty colours a reader can tell apart do not exist.
+  // Where the county cannot be satisfied the map degrades to the touching rule, which can
+  // always be met, rather than producing two neighbours in one colour.
+  const touching = new Map<number, Set<number>>();
+  const conflicts = new Map<number, Set<number>>();
+  for (const unit of units) {
+    touching.set(unit, new Set());
+    conflicts.set(unit, new Set());
+  }
+
+  // Every county is a clique: no colour twice within one.
+  const byCounty = new Map<number, number[]>();
+  for (const unit of units) {
+    const county = data.countyOf[unit]!;
+    let list = byCounty.get(county);
+    if (!list) {
+      list = [];
+      byCounty.set(county, list);
+    }
+    list.push(unit);
+  }
+  for (const list of byCounty.values()) {
+    for (let i = 0; i < list.length; i += 1) {
+      for (let j = i + 1; j < list.length; j += 1) {
+        conflicts.get(list[i]!)!.add(list[j]!);
+        conflicts.get(list[j]!)!.add(list[i]!);
+      }
     }
   }
 
-  units.sort((a, b) => a - b);
-  const chosen = new Map<number, number>();
+  // Plus every pair that touches, following commune borders across county lines. The
+  // touching graph, not the model's: a border with no road across it is still a border on
+  // screen.
+  for (let i = 0; i < data.uatCount; i += 1) {
+    const unit = regionOf[i]!;
+    for (let e = data.touchStart[i]!; e < data.touchStart[i + 1]!; e += 1) {
+      const other = regionOf[data.touching[e]!]!;
+      if (other !== unit) {
+        conflicts.get(unit)!.add(other);
+        conflicts.get(other)!.add(unit);
+        touching.get(unit)!.add(other);
+        touching.get(other)!.add(unit);
+      }
+    }
+  }
 
-  for (const unit of units) {
+  // Most-constrained first. Index order needs more than eleven colours; this does not.
+  const order = [...units].sort((a, b) => {
+    const byDegree = conflicts.get(b)!.size - conflicts.get(a)!.size;
+    return byDegree !== 0 ? byDegree : a - b;
+  });
+
+  const chosen = new Map<number, number>();
+  const usedBy = (group: Map<number, Set<number>>, unit: number): Set<number> => {
     const taken = new Set<number>();
-    for (const other of neighbours.get(unit)!) {
+    for (const other of group.get(unit)!) {
       const already = chosen.get(other);
       if (already !== undefined) taken.add(already);
     }
-    const own = isOrphanUnit[unit] === 1 ? CLUSTER : UNIT;
-    const other = isOrphanUnit[unit] === 1 ? UNIT : CLUSTER;
-    // Own family first, then the other; never leave a neighbour matching just to keep the
-    // family tidy.
-    const pick =
-      own.find((c) => !taken.has(c)) ??
-      other.find((c) => !taken.has(c)) ??
-      own[0]!;
+    return taken;
+  };
+
+  for (const unit of order) {
+    const both = usedBy(conflicts, unit);
+    let pick = 0;
+    while (pick < PALETTE.length && both.has(pick)) pick += 1;
+    if (pick >= PALETTE.length) {
+      // The county is fuller than the palette. Give up the county rule for this one unit
+      // and keep the rule that always matters: not matching anything it touches.
+      const near = usedBy(touching, unit);
+      pick = 0;
+      while (pick < PALETTE.length && near.has(pick)) pick += 1;
+      if (pick >= PALETTE.length) pick = 0;
+    }
     chosen.set(unit, pick);
   }
 
