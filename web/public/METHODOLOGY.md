@@ -116,6 +116,15 @@ because a wider radius satisfies more units and each one it satisfies stops acce
 neighbours. A slider labelled "how far a centre reaches" must not increase the number of units
 when you turn it up.
 
+*A capital wins any contest for a commune on its own border, outright.* Nothing overrides
+this. It was broken three separate ways: by the radius admitting the wrong set, by a nearer
+centre winning the contest on road distance, and by the rebalancing pass moving ring communes
+to a nearer seat after the fact — that last one had taken part of the ring from 24 of the 41
+capitals. A test now asserts the rule directly rather than trusting the steps meant to produce
+it. 39 of 41 capitals hold their complete ring; the two exceptions, Ocna Sugatag at 50.0 km
+from Baia Mare and Buchin at 50.3 km from Resita, border their capital across a mountain and
+fall outside the road cap.
+
 *A ring is settled as one round, not claim by claim.* Every centre bids for every unclaimed
 commune it borders, all the bids are collected, and the whole ring is decided together.
 Populations change only between rounds, so no centre gains an advantage from being processed

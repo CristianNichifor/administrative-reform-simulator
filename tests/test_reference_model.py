@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 269
+SNAPSHOT_DEFAULT_REGIONS = 271
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -365,3 +365,37 @@ class TestParameterResponse:
             summary = run(data, params)[1]
             assert summary["savings_admin_ron"] >= 0
             assert summary["savings_operating_ron"] >= summary["savings_admin_ron"]
+
+
+class TestCapitalRing:
+    """A resedinta de judet absorbs the communes bordering it. Nothing overrides this.
+
+    It has been broken three separate ways — by the radius admitting the wrong set, by a
+    nearer centre winning the contest, and by the rebalancing pass moving ring communes to a
+    nearer seat afterwards — so it is asserted directly rather than inferred from any of the
+    steps that are supposed to produce it.
+    """
+
+    def test_every_capital_holds_its_first_ring(self, data, default_run) -> None:
+        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
+
+        result, summary = default_run
+        missing: list[str] = []
+        for capital in sorted(COUNTY_CAPITAL_SIRUTA):
+            if capital not in data.population:
+                continue
+            for neighbour in data.neighbours.get(capital, ()):
+                if data.county[neighbour] != data.county[capital]:
+                    continue
+                if result.region_of[neighbour] == result.region_of[capital]:
+                    continue
+                # The one legitimate escape: a commune that borders the capital but is a
+                # long way round by road. Ocna Sugatag is 50.0 km from Baia Mare and Buchin
+                # 50.3 km from Resita, both across a mountain.
+                road = data.road_distance.get((capital, neighbour), math.inf)
+                if road > summary["params"].max_road_m:
+                    continue
+                missing.append(
+                    f"{data.name[capital]} lost {data.name[neighbour]} ({road / 1000:.1f} km)"
+                )
+        assert missing == []

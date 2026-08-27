@@ -792,12 +792,22 @@ def _grow(
 
         def settle(uat: str, row: dict[str, float]) -> str:
             def key(bidder: str, uat: str = uat, row: dict[str, float] = row) -> tuple:
+                # A capital wins any contest for a commune on its own border, outright.
+                #
+                # This is the rule, and nothing else may override it: a resedinta de judet
+                # absorbs the ring around it. Left to road distance the capital lost its own
+                # neighbours to whichever centre happened to sit closer to them — thirteen
+                # capitals were missing part of their ring for exactly this reason.
+                own_ring = bidder in COUNTY_CAPITAL_SIRUTA and uat in data.neighbours.get(
+                    bidder, ()
+                )
                 overshoot = (
                     is_capped(bidder)
                     and params.p_target > 0
                     and gathered[bidder] + data.population[uat] > params.p_target
                 )
                 return (
+                    0 if own_ring else 1,
                     1 if overshoot else 0,
                     row[bidder],
                     result.seeds[bidder],
@@ -1206,6 +1216,13 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
         for siruta in sorted(data.population):
             here = result.region_of[siruta]
             if here == siruta:
+                continue
+            # A commune bordering its county capital belongs to the capital and is not
+            # moved. Rebalancing asks only "is another seat nearer by road", and for a ring
+            # commune the answer is often yes — which quietly undid the rule that a capital
+            # absorbs the ring around it. Twenty-four of the forty-one capitals had lost
+            # part of their ring to this pass.
+            if here in COUNTY_CAPITAL_SIRUTA and siruta in data.neighbours.get(here, ()):
                 continue
             members = result.members[here]
             here_distance = reach_from(here).get(siruta, math.inf)

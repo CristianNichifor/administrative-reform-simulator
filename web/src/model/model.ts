@@ -630,11 +630,25 @@ function grow(
     for (const uat of [...bids.keys()].sort((a, b) => a - b)) {
       const row = bids.get(uat)!;
       const keyOf = (bidder: number): number[] => {
+        // A capital wins any contest for a commune on its own border, outright. This is the
+        // rule and nothing overrides it: a resedinta de judet absorbs the ring around it.
+        // Left to road distance the capital lost its own neighbours to whichever centre sat
+        // closer to them, and thirteen capitals were missing part of their ring.
+        // Resedinte de judet only. `isCapital` is also true for the six Bucharest sectors,
+        // and giving the national capital outright priority over its Ilfov ring is a
+        // different rule from the one being implemented — the city already has its radius.
+        let ownRing = 0;
+        if (data.attributes.isCapital[bidder] && data.countyOf[bidder] !== data.bucharestCounty) {
+          for (let e = data.neighbourStart[bidder]!; e < data.neighbourStart[bidder + 1]!; e += 1) {
+            if (data.neighbours[e] === uat) { ownRing = 1; break; }
+          }
+        }
         const overshoot =
           isCapped(bidder) &&
           params.pTarget > 0 &&
           gathered.get(bidder)! + data.population[uat]! > params.pTarget;
         return [
+          ownRing ? 0 : 1,
           overshoot ? 1 : 0,
           row.get(bidder)!,
           tierOf[bidder]!,
@@ -1232,6 +1246,17 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
     for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
       const here = regionOf[siruta]!;
       if (here === siruta) continue;
+      // A commune bordering its county capital belongs to the capital and is not moved.
+      // Rebalancing asks only "is another seat nearer by road", and for a ring commune the
+      // answer is often yes — which quietly undid the rule. Twenty-four of the forty-one
+      // capitals had lost part of their ring to this pass.
+      if (data.attributes.isCapital[here] && data.countyOf[here] !== data.bucharestCounty) {
+        let onRing = false;
+        for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
+          if (data.neighbours[e] === siruta) { onRing = true; break; }
+        }
+        if (onRing) continue;
+      }
       const hereDistance = reachFrom(here).get(siruta) ?? Infinity;
 
       let target = -1;
