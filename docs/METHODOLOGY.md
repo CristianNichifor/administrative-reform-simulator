@@ -386,6 +386,21 @@ unit an override has split. None of these is an error — they are all legal out
 rules — but every problem described in this document was found by noticing one of them while
 panning around the map. The list exists so they can be found on purpose instead.
 
+Each entry says *why*, because "single-UAT unit" is an observation and only a reason is
+actionable. There are exactly two:
+
+**Past the road cap.** The nearest merge available would put some commune further from its
+town hall than the cap allows, and the list gives the distance — which is the answer to
+"what would I have to set the cap to". Four of the six single-UAT units at the default
+settings are this: Chilia Veche at 74.1 km, Dănicei at 61.4, Lunca Cernii de Jos at 53.8, and
+Crișan at 50.9, which misses by 900 metres. Raising the cap from 50 km to 80 km takes the
+country from 260 units to 171 and the saving from 8.88 to 9.25 bn RON.
+
+**No road neighbour in its own county.** Pietroșani's only road-connected neighbour is in
+Giurgiu; Nămoloasa's is in Vrancea. The county rule forbids every merge either could make, so
+no cap setting reaches them and they stay units of one at any parameters. This is the cost of
+the county constraint, stated rather than hidden.
+
 ## Metodologie (română)
 
 ### Ce este
@@ -687,4 +702,19 @@ membru propriu și orice unitate ruptă de o modificare manuală. Niciuna nu est
 toate rezultate legale ale regulilor — dar fiecare problemă descrisă în acest document a fost
 găsită observând una dintre ele în timp ce se naviga pe hartă. Lista există pentru ca ele să
 poată fi găsite intenționat.
+
+Fiecare intrare spune *de ce*, pentru că „unitate dintr-o singură UAT" este o observație și
+doar un motiv permite o acțiune. Există exact două:
+
+**Peste plafonul de drum.** Cea mai apropiată fuziune posibilă ar duce o comună mai departe de
+primărie decât permite plafonul, iar lista dă distanța — adică răspunsul la întrebarea „la cât
+ar trebui să pun plafonul". Patru din cele șase unități de o singură UAT la setările implicite
+sunt în această situație: Chilia Veche la 74,1 km, Dănicei la 61,4, Lunca Cernii de Jos la
+53,8 și Crișan la 50,9, care ratează cu 900 de metri. Ridicarea plafonului de la 50 km la
+80 km duce țara de la 260 la 171 de unități, iar economia de la 8,88 la 9,25 miliarde lei.
+
+**Niciun vecin pe drum în propriul județ.** Singurul vecin rutier al Pietroșaniului este în
+Giurgiu, iar al Nămoloasei în Vrancea. Regula județului le interzice orice fuziune, deci
+niciun plafon nu ajunge la ele și rămân unități de una singură la orice parametri. Acesta este
+costul constrângerii județene, spus explicit, nu ascuns.
 

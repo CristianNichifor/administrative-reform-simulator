@@ -8,7 +8,7 @@
 
 import { decode } from './load';
 import { assignUnitColours } from './colour';
-import { runModel } from './model';
+import { mergeBlocker, runModel } from './model';
 import type { Attributes, Manifest, ModelData, Params, Pin } from './types';
 
 export interface InitMessage {
@@ -25,7 +25,24 @@ export interface ComputeMessage {
   token: number;
 }
 
-export type Incoming = InitMessage | ComputeMessage;
+/**
+ * Ask why a set of units could not merge.
+ *
+ * Answered on demand rather than shipped with every result: each answer is a Dijkstra
+ * inside one county, and the audit list is opened occasionally while the sliders move
+ * continuously.
+ */
+export interface ExplainMessage {
+  type: 'explain';
+  seats: number[];
+}
+
+export type Incoming = InitMessage | ComputeMessage | ExplainMessage;
+
+export interface ExplainResultMessage {
+  type: 'explain-result';
+  blockers: { seat: number; kind: 'no-county-neighbour' | 'cap'; metres: number }[];
+}
 
 export interface ReadyMessage {
   type: 'ready';
@@ -75,13 +92,15 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type Outgoing = ReadyMessage | ResultMessage | ErrorMessage;
+export type Outgoing = ReadyMessage | ResultMessage | ErrorMessage | ExplainResultMessage;
 
 // `self` in a module worker is a DedicatedWorkerGlobalScope, whose postMessage takes a
 // transfer list. The DOM lib types it as Window, which has a different signature.
 declare const self: DedicatedWorkerGlobalScope;
 
 let data: ModelData | null = null;
+let lastRegionOf: Uint16Array | null = null;
+let lastParams: Params | null = null;
 
 async function load(baseUrl: string): Promise<ModelData> {
   const get = async (name: string): Promise<Response> => {
@@ -140,10 +159,30 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       return;
     }
 
+    if (message.type === 'explain') {
+      if (!data || !lastRegionOf || !lastParams) return;
+      const blockers: ExplainResultMessage['blockers'] = [];
+      for (const seat of message.seats) {
+        const blocker = mergeBlocker(data, lastParams, lastRegionOf, seat);
+        if (!blocker) continue;
+        blockers.push({
+          seat,
+          kind: blocker.kind,
+          metres: blocker.kind === 'cap' ? blocker.metres : 0,
+        });
+      }
+      self.postMessage({ type: 'explain-result', blockers } satisfies ExplainResultMessage);
+      return;
+    }
+
     if (message.type === 'compute') {
       if (!data) throw new Error('compute before init');
       const started = performance.now();
       const result = runModel(data, message.params, message.pins ?? []);
+      // Kept because the assignment below is transferred, not copied, and `explain` needs
+      // to know what the current map actually is.
+      lastRegionOf = result.regionOf.slice();
+      lastParams = message.params;
 
       // A unit is orphan-tier when its seat is not a centre: absorbed units are always
       // centred on one, clusters never are.

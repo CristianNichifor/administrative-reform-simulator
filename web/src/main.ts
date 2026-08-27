@@ -535,8 +535,13 @@ async function boot(): Promise<void> {
               .sort((a, b) => unitName(ready!, a).localeCompare(unitName(ready!, b), scenario.lang))
               .map(
                 (seat) =>
-                  `<li><button data-goto="${seat}">${unitName(ready!, seat)}</button>
-                   <span>${ready!.attributes.county[seat]}</span></li>`,
+                  `<li data-seat="${seat}">
+                     <div class="audit-row">
+                       <button data-goto="${seat}">${unitName(ready!, seat)}</button>
+                       <span>${ready!.attributes.county[seat]}</span>
+                     </div>
+                     <em class="audit-why"></em>
+                   </li>`,
               )
               .join('')}
           </ul>
@@ -544,6 +549,18 @@ async function boot(): Promise<void> {
               )
               .join('')
       }`;
+
+    // Filled in when a group is opened, not on every repaint: each answer is a Dijkstra
+    // inside one county, which is cheap once and wasteful 137 times a second during a drag.
+    box.querySelectorAll<HTMLDetailsElement>('details').forEach((details) => {
+      details.addEventListener('toggle', () => {
+        if (!details.open) return;
+        const seats = [...details.querySelectorAll<HTMLElement>('li[data-seat]')]
+          .filter((row) => row.querySelector('.audit-why')?.textContent === '')
+          .map((row) => Number(row.dataset.seat));
+        if (seats.length > 0) worker.postMessage({ type: 'explain', seats });
+      });
+    });
 
     box.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -718,6 +735,22 @@ async function boot(): Promise<void> {
       }
       renderModes();
       schedule();
+      return;
+    }
+
+    if (message.type === 'explain-result') {
+      for (const blocker of message.blockers) {
+        const note = el<HTMLElement>('#audit').querySelector<HTMLElement>(
+          `li[data-seat="${blocker.seat}"] .audit-why`,
+        );
+        if (!note) continue;
+        note.textContent =
+          blocker.kind === 'no-county-neighbour'
+            ? strings.auditWhyCounty
+            : strings.auditWhyCap
+                .replace('{km}', (blocker.metres / 1000).toFixed(1))
+                .replace('{cap}', String(Math.round(scenario.params.maxRoadM / 1000)));
+      }
       return;
     }
 

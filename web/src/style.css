@@ -947,10 +947,7 @@ button.link:hover {
 }
 
 .audit-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
+  display: block;
 }
 
 .audit-list button {
@@ -973,4 +970,24 @@ button.link:hover {
 .audit-list span {
   font-size: 11px;
   color: var(--muted);
+}
+
+.audit-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.audit-why {
+  display: block;
+  padding: 0 5px 3px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.audit-why:empty {
+  display: none;
 }

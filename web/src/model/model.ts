@@ -1014,6 +1014,51 @@ function applyPins(
   return { pinsApplied, pinsRejected, splitUnits };
 }
 
+/**
+ * Why a unit could not merge with anything, or null if nothing is stopping it.
+ *
+ * The audit list is only useful if it says what to do about an entry. "Single-UAT unit" is
+ * an observation; "its only road neighbour is in another county" and "the nearest merge is
+ * 74 km against a 50 km cap" are the two different answers, and only one of them has a
+ * slider.
+ */
+export function mergeBlocker(
+  data: ModelData,
+  params: Params,
+  regionOf: Uint16Array,
+  seat: number,
+): { kind: 'no-county-neighbour' } | { kind: 'cap'; metres: number } | null {
+  const members: number[] = [];
+  for (let i = 0; i < data.uatCount; i += 1) if (regionOf[i] === seat) members.push(i);
+
+  // Units this one touches, that it would be allowed to join.
+  const partners = new Set<number>();
+  for (const member of members) {
+    for (let e = data.neighbourStart[member]!; e < data.neighbourStart[member + 1]!; e += 1) {
+      const other = regionOf[data.neighbours[e]!]!;
+      if (other !== seat && mayAbsorb(data, other, member)) partners.add(other);
+    }
+  }
+  if (partners.size === 0) return { kind: 'no-county-neighbour' };
+  if (params.maxRoadM <= 0) return null;
+
+  // The cheapest merge available, measured the way consolidation measures it: every member
+  // of the combined unit within the cap of whichever seat would survive.
+  let best = Infinity;
+  for (const partner of partners) {
+    const county = data.countyOf[partner]!;
+    const reach = countyRoadDistances(data, county, [partner]);
+    let worst = 0;
+    for (const member of [...members, partner]) {
+      if (data.countyOf[member] !== county) continue;
+      worst = Math.max(worst, reach.get(member) ?? Infinity);
+    }
+    best = Math.min(best, worst);
+  }
+  if (!Number.isFinite(best)) return { kind: 'no-county-neighbour' };
+  return best > params.maxRoadM ? { kind: 'cap', metres: best } : null;
+}
+
 export function runModel(data: ModelData, params: Params, pins: Pin[] = []): ModelResult {
   const regionOf = new Uint16Array(data.uatCount).fill(NO_REGION);
   const reasonOf = new Uint8Array(data.uatCount).fill(REASON.UNCHANGED);

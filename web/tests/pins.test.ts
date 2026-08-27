@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { decode } from '../src/model/load';
-import { runModel } from '../src/model/model';
+import { mergeBlocker, runModel } from '../src/model/model';
 import { DEFAULT_PARAMS, type ModelData, type Pin } from '../src/model/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -201,5 +201,76 @@ describe('pins accumulate', () => {
     const result = runModel(data, DEFAULT_PARAMS, pins);
     expect(result.pinsApplied).toHaveLength(2);
     for (const pin of pins) expect(result.regionOf[pin.uat]).toBe(bucharest);
+  });
+});
+
+describe('why a unit could not merge', () => {
+  it('separates the county-stranded from the merely distant', () => {
+    const result = runModel(data, DEFAULT_PARAMS);
+    const singles: number[] = [];
+    const count = new Map<number, number>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const seat = result.regionOf[i]!;
+      count.set(seat, (count.get(seat) ?? 0) + 1);
+    }
+    for (const [seat, n] of count) if (n === 1) singles.push(seat);
+    expect(singles.length).toBeGreaterThan(0);
+
+    // Every single-UAT unit has a reason, and it is one of exactly two.
+    const byKind = { 'no-county-neighbour': [] as string[], cap: [] as string[] };
+    for (const seat of singles) {
+      const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat);
+      expect(blocker, `${data.attributes.name[seat]} is alone for no stated reason`).not.toBeNull();
+      byKind[blocker!.kind].push(data.attributes.name[seat]!);
+      if (blocker!.kind === 'cap') {
+        // A cap answer has to be actionable: past the cap, and a real distance.
+        expect(blocker!.metres).toBeGreaterThan(DEFAULT_PARAMS.maxRoadM);
+        expect(Number.isFinite(blocker!.metres)).toBe(true);
+      }
+    }
+
+    // Pietrosani's only road neighbour is in Giurgiu and Namoloasa's is in Vrancea, so no
+    // cap setting can ever reach them. That is a consequence of the county rule, not a bug,
+    // and it is the one thing in this list a slider cannot fix.
+    expect(byKind['no-county-neighbour'].sort()).toEqual(['NĂMOLOASA', 'PIETROȘANI']);
+    expect(byKind.cap.length).toBeGreaterThan(0);
+  });
+
+  it('never blames the cap when the cap is switched off', () => {
+    // With no cap the only thing that can block a merge is having nobody legal to merge
+    // with. Anything still reporting a distance would be reporting a limit that is not
+    // being applied, which is worse than saying nothing.
+    const params = { ...DEFAULT_PARAMS, maxRoadM: 0 };
+    const result = runModel(data, params);
+    const seats = new Set<number>();
+    for (let i = 0; i < data.uatCount; i += 1) seats.add(result.regionOf[i]!);
+
+    const blamed: string[] = [];
+    for (const seat of seats) {
+      if (mergeBlocker(data, params, result.regionOf, seat)?.kind === 'cap') {
+        blamed.push(data.attributes.name[seat]!);
+      }
+    }
+    expect(blamed).toEqual([]);
+
+    // And the county answer still comes through, because it has nothing to do with distance.
+    expect(mergeBlocker(data, params, result.regionOf, find('PIETROȘANI', 'TR'))?.kind).toBe(
+      'no-county-neighbour',
+    );
+  });
+
+  it('stops blocking once the cap is raised past the distance it reported', () => {
+    const result = runModel(data, DEFAULT_PARAMS);
+    const chilia = find('CHILIA VECHE', 'TL');
+    const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, chilia);
+    expect(blocker?.kind).toBe('cap');
+    const needed = (blocker as { metres: number }).metres;
+
+    // The number it reports is the answer to "what would I have to set the cap to", so at
+    // that cap the unit must no longer be alone.
+    const raised = runModel(data, { ...DEFAULT_PARAMS, maxRoadM: Math.ceil(needed) + 1000 });
+    let members = 0;
+    for (let i = 0; i < data.uatCount; i += 1) if (raised.regionOf[i] === raised.regionOf[chilia]!) members += 1;
+    expect(members).toBeGreaterThan(1);
   });
 });

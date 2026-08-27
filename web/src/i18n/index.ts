@@ -120,6 +120,8 @@ export interface Strings {
   auditSplit: string;
   auditClean: string;
   auditShow: string;
+  auditWhyCounty: string;
+  auditWhyCap: string;
   balanceSurplus: string;
   balanceDeficit: string;
   perResident: string;
@@ -257,6 +259,8 @@ const ro: Strings = {
   auditSplit: 'rupte de o modificare manuală',
   auditClean: 'Nimic de semnalat.',
   auditShow: 'Arată',
+  auditWhyCounty: 'niciun vecin pe drum în propriul județ — regula județului îi interzice orice fuziune',
+  auditWhyCap: 'cea mai apropiată fuziune ar fi la {km} km, peste plafonul de {cap} km',
   balanceSurplus: 'Excedent',
   balanceDeficit: 'Deficit',
   perResident: '/ locuitor',
@@ -394,6 +398,8 @@ const en: Strings = {
   auditSplit: 'split by a manual override',
   auditClean: 'Nothing flagged.',
   auditShow: 'Show',
+  auditWhyCounty: 'no road neighbour in its own county — the county rule forbids every merge',
+  auditWhyCap: 'nearest merge would be {km} km, past the {cap} km cap',
   balanceSurplus: 'Surplus',
   balanceDeficit: 'Deficit',
   perResident: '/ resident',
