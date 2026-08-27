@@ -86,6 +86,11 @@ const SLIDERS: SliderSpec[] = [
     format: (v, l, s) => (v === 0 ? s.pOrphanOff : formatNumber(v, l)),
   },
   {
+    key: 'maxRoadM', labelKey: 'maxRoad', helpKey: 'maxRoadHelp',
+    min: 0, max: 80000, step: 5000,
+    format: (v, _l, s) => (v === 0 ? s.pTargetOff : KM(v)),
+  },
+  {
     key: 'pTarget', labelKey: 'pTarget', helpKey: 'pTargetHelp',
     min: 0, max: 100000, step: 2500,
     format: (v, l, s) => (v === 0 ? s.pTargetOff : formatNumber(v, l)),
@@ -490,6 +495,56 @@ async function boot(): Promise<void> {
   };
 
   // --- interaction -------------------------------------------------------------------
+
+  // Hover: the commune as it is today, and the unit it would belong to. Both at once,
+  // because "what happens to my commune" is the question the map is actually asked, and
+  // answering it should not require a click.
+  const hovercard = el<HTMLElement>('#hovercard');
+  mapHandle.onHover((index, x, y) => {
+    if (index === null || !ready || !latest) {
+      hovercard.hidden = true;
+      return;
+    }
+    const unit = latest.regionOf[index]!;
+    let unitPop = 0;
+    let unitMembers = 0;
+    for (let i = 0; i < latest.regionOf.length; i += 1) {
+      if (latest.regionOf[i] === unit) {
+        unitPop += ready.population[i]!;
+        unitMembers += 1;
+      }
+    }
+    const unchanged = unitMembers === 1;
+    hovercard.innerHTML = `
+      <div class="name">${ready.attributes.name[index]}</div>
+      <div class="county">${ready.attributes.county[index]}</div>
+      <div class="line"><span>${strings.population}</span><span>${formatNumber(
+        ready.population[index]!,
+        scenario.lang,
+      )}</span></div>
+      <div class="after">
+        <div class="line">
+          <span>${unchanged ? strings.legendUnchanged : strings.hoverProposed}</span>
+          <span>${formatNumber(unitPop, scenario.lang)}</span>
+        </div>
+        ${
+          unchanged
+            ? ''
+            : `<div class="unit">${ready.attributes.name[unit]} · ${formatNumber(
+                unitMembers,
+                scenario.lang,
+              )} ${strings.hoverCommunes}</div>`
+        }
+      </div>`;
+    hovercard.hidden = false;
+    // Kept inside the viewport: near the right or bottom edge the card flips to the other
+    // side of the cursor rather than being clipped.
+    const box = hovercard.getBoundingClientRect();
+    const left = x + 16 + box.width > window.innerWidth ? x - box.width - 16 : x + 16;
+    const top = y + 16 + box.height > window.innerHeight ? y - box.height - 16 : y + 16;
+    hovercard.style.left = `${Math.max(8, left)}px`;
+    hovercard.style.top = `${Math.max(8, top)}px`;
+  });
 
   mapHandle.onSelect((index) => {
     scenario.selected = index;

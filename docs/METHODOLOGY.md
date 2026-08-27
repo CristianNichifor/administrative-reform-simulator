@@ -82,6 +82,13 @@ population target governs the smaller centres only — Tulcea alone is 65,624, a
 taking more, leaving something for its neighbours instead of letting whichever centre is
 nearest to the most communes sweep the county.
 
+*Nothing may be further from its centre than the distance cap.* Without one, growth is
+limited only by the radius and by who else is competing — and in a sparse county nobody
+competes. Cernavodă reached Ostrov 59 km away and Constanța reached Vulturu at 60 km, giving
+units as wide as the county. A radius says how far a centre pulls; the cap says how far
+anyone should reasonably have to travel to their own town hall. It binds on every merge, not
+only on growth.
+
 *A centre bordering its county capital is held back.* Otherwise the capital simply eats it
 on the first step, and a perfectly good town disappears because of where it happens to sit.
 It is left alone while everyone else grows, then asked whether it can still reach the target
@@ -104,6 +111,12 @@ jumps over a commune it did not absorb, and once a commune is taken it is taken.
 
 Two hard limits: a region **never crosses a county boundary**, and a commune can only be
 absorbed across a border that a road actually crosses.
+
+**A motorway is not a connection.** You cannot join or leave one at an arbitrary point, so
+a motorway crossing a border without a junction carries traffic *past* it rather than across
+it. Counting them made 513 border crossings passable where in practice there is no way
+across. Motorways remain in the routing network — once you are on one it is a real road —
+but they cannot be the thing that makes a border passable.
 
 *This changed after the first version.* The original rule resolved competition by
 processing order — county capitals first, then by population — and it produced results that
@@ -150,7 +163,8 @@ line. They are reported, never forced.
 | Minimum separation | 15 km by road | 0 – 30 km | Keeps promoted centres apart |
 | Minimum overlap | 10% | 0 – 50% | How much of a commune must fall inside the radius |
 | Leftover threshold | 5,000 | 0 (off) – 15,000 | How large a leftover cluster may grow |
-| Minimum resulting population | 0 (off) | 0 – 100,000 | Merges units that finish below this |
+| Minimum resulting population | 50,000 | 0 – 100,000 | Merges units that finish below this |
+| Maximum road distance | 50 km | 0 (off) – 80 km | How far a commune may be from its centre |
 
 The two radii snap to 2.5 km steps. Reach is precomputed for each of those steps so the map
 can recompute in milliseconds instead of re-doing the geometry in your browser.
@@ -381,7 +395,8 @@ Ce rămâne neunit și după acest pas rămâne pur și simplu așa cum este ast
 | Distanță minimă | 15 km pe drum | 0 – 30 km | Menține centrele promovate depărtate |
 | Suprapunere minimă | 10% | 0 – 50% | Cât din comună trebuie să intre în rază |
 | Prag comune rămase | 5.000 | 0 (oprit) – 15.000 | Cât de mare poate crește o grupare |
-| Populație minimă rezultată | 0 (oprit) | 0 – 100.000 | Unește unitățile rămase sub acest prag |
+| Populație minimă rezultată | 50.000 | 0 – 100.000 | Unește unitățile rămase sub acest prag |
+| Distanță maximă pe drum | 50 km | 0 (oprit) – 80 km | Cât de departe poate fi o comună de centrul ei |
 
 Cele două raze se fixează pe trepte de 2,5 km. Întinderea este precalculată pentru fiecare
 treaptă, astfel încât harta să se recalculeze în milisecunde, fără a reface geometria în

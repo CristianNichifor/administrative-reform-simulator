@@ -36,6 +36,8 @@ export interface Strings {
   pOrphan: string;
   pOrphanHelp: string;
   pOrphanOff: string;
+  maxRoad: string;
+  maxRoadHelp: string;
   pTarget: string;
   pTargetHelp: string;
   pTargetOff: string;
@@ -83,6 +85,8 @@ export interface Strings {
   legendOrphan: string;
   legendUnchanged: string;
 
+  hoverProposed: string;
+  hoverCommunes: string;
   selectPrompt: string;
   region: string;
   centre: string;
@@ -130,6 +134,8 @@ const ro: Strings = {
   pOrphanHelp:
     'Comunele neatinse de niciun centru se pot uni între ele până la acest prag. Regulă diferită de absorbție.',
   pOrphanOff: 'dezactivat',
+  maxRoad: 'Distanță maximă pe drum',
+  maxRoadHelp: 'Cât de departe poate fi o comună de centrul ei, pe drum. Împiedică unități late cât județul.',
   pTarget: 'Populație minimă rezultată',
   pTargetHelp:
     'După toate celelalte reguli, unitățile sub acest prag se unesc cu cea mai mică unitate vecină din același județ, până ating pragul.',
@@ -185,6 +191,8 @@ const ro: Strings = {
   legendOrphan: 'Grupare de comune mici',
   legendUnchanged: 'Neschimbat',
 
+  hoverProposed: 'Unitate propusă',
+  hoverCommunes: 'comune',
   selectPrompt: 'Selectează o unitate pe hartă.',
   region: 'Unitate rezultată',
   centre: 'Centru',
@@ -232,6 +240,8 @@ const en: Strings = {
   pOrphanHelp:
     'Communes no centre reached may pair up with each other to this size. A different rule from absorption.',
   pOrphanOff: 'off',
+  maxRoad: 'Maximum road distance',
+  maxRoadHelp: 'How far a commune may be from its centre, by road. Stops units as wide as the county.',
   pTarget: 'Minimum resulting population',
   pTargetHelp:
     'After every other rule, units below this merge with the smallest neighbouring unit in the same county until they reach it.',
@@ -287,6 +297,8 @@ const en: Strings = {
   legendOrphan: 'Small-commune cluster',
   legendUnchanged: 'Unchanged',
 
+  hoverProposed: 'Proposed unit',
+  hoverCommunes: 'communes',
   selectPrompt: 'Select a unit on the map.',
   region: 'Resulting unit',
   centre: 'Centre',

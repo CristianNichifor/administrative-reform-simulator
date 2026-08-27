@@ -34,6 +34,7 @@ interface FixtureCase {
     min_overlap: number;
     p_orphan: number;
     p_target: number;
+    max_road_m: number;
   };
   regions: number;
   seeds: number;
@@ -72,6 +73,7 @@ function toParams(p: FixtureCase['params']): Params {
     minOverlap: p.min_overlap,
     pOrphan: p.p_orphan,
     pTarget: p.p_target,
+    maxRoadM: p.max_road_m,
   };
 }
 

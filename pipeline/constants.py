@@ -35,16 +35,10 @@ R_CAP_DEFAULT_M: Final = 10_000
 R_TOWN_DEFAULT_M: Final = 10_000
 RADIUS_RANGE_M: Final = (5_000, 30_000)
 
-# Off by default, in the sense that one centre per county is no constraint at all.
-#
-# Promotion exists as a fallback for a county the threshold leaves nearly empty. At a 7,500
-# threshold it is barely needed: N_min=1 yields 343 centres with no promotions and no
-# under-seeded county, against 354 with 11 promotions at N_min=5. Left at 5 it does active
-# harm in sparse counties — Tulcea has two natural centres, so it promotes Sarichioi into a
-# centre of its own rather than letting it join Babadag 16 km away by road.
-#
-# It matters again when the threshold is raised, which is why the slider stays.
-N_MIN_DEFAULT: Final = 1
+# Every county aims for at least this many centres, promoting more where the threshold
+# leaves it short. A county with one centre is not a reformed county, it is a county with
+# one very large unit.
+N_MIN_DEFAULT: Final = 5
 N_MIN_RANGE: Final = (1, 10)
 
 R_SEP_DEFAULT_M: Final = 15_000
@@ -64,6 +58,19 @@ P_ORPHAN_RANGE: Final = (0, 15_000)
 # change what a radius means.
 P_TARGET_DEFAULT: Final = 50_000
 P_TARGET_RANGE: Final = (0, 100_000)
+
+# How far a commune may be from its centre, by road, to be absorbed at all.
+#
+# Without a cap, growth is limited only by the radius and by who else is competing, and in a
+# sparse county nobody competes: Cernavodă reached Ostrov 59 km away, and Constanța reached
+# Vulturu at 60 km, giving units as wide as the county. A radius says how far a centre
+# *pulls*; this says how far anyone should reasonably have to travel to their own town hall.
+# 50 km rather than 35: at 35 km the cap and a 50,000 target pull hard against each other
+# and 303 of 420 units finish short, because a compact unit in a sparse county simply cannot
+# find 50,000 people. At 50 km no unit breaches the cap and 143 fall short. Both are sliders;
+# this is the point where they stop fighting.
+MAX_ROAD_DEFAULT_M: Final = 50_000
+MAX_ROAD_RANGE_M: Final = (10_000, 80_000)
 
 # Seed-promotion relaxation (brief §2 step 1): when no candidate satisfies the separation
 # constraint, shrink it stepwise rather than failing outright, and give up below the floor.

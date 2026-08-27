@@ -41,6 +41,7 @@ import pandas as pd
 from pipeline.constants import (
     ABSORBER_POP_THRESHOLD_DEFAULT,
     BUCHAREST_COUNTY_CODE,
+    MAX_ROAD_DEFAULT_M,
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
@@ -72,6 +73,7 @@ class Params:
     min_overlap: float = MIN_OVERLAP_DEFAULT
     p_orphan: int = P_ORPHAN_DEFAULT
     p_target: int = P_TARGET_DEFAULT
+    max_road_m: int = MAX_ROAD_DEFAULT_M
 
     def snapped(self) -> Params:
         """Radii must land on the precomputed grid; the UI slider snaps to it too."""
@@ -85,6 +87,7 @@ class Params:
             min_overlap=self.min_overlap,
             p_orphan=self.p_orphan,
             p_target=self.p_target,
+            max_road_m=self.max_road_m,
         )
 
 
@@ -317,6 +320,11 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
             result.seeds[siruta] = TIER_POPULATION
 
     for county_code in sorted(data.by_county):
+        # Bucharest is one city, not a county needing a spread of centres. Promotion here
+        # was making four of its six sectors into centres in their own right — exactly the
+        # duplication the merge exists to remove.
+        if county_code == BUCHAREST_COUNTY_CODE:
+            continue
         in_county = [s for s in data.by_county[county_code] if s in result.seeds]
         if len(in_county) >= params.n_min:
             continue
@@ -418,6 +426,18 @@ def accrete(data: Data, params: Params, result: Result) -> None:
         capital = _county_capital(data, data.county[absorber])
         if capital is None or capital not in result.members:
             continue
+        # Folding is subject to the distance cap like every other merge. A held centre
+        # gathers up to the cap from itself, so folding it wholesale put communes twice the
+        # cap from the capital — Reșița reached 73 km, which is 35 + 35. Where the fold
+        # would breach it, the held centre keeps its own unit instead and is reported as
+        # below target, which is the honest outcome rather than a silently oversized region.
+        if params.max_road_m > 0:
+            reach = _county_road_distances(data, data.county[capital], [capital])
+            if any(
+                reach.get(m, math.inf) > params.max_road_m
+                for m in result.members.get(absorber, [absorber])
+            ):
+                continue
         for member in result.members.pop(absorber):
             result.region_of[member] = capital
             result.members[capital].append(member)
@@ -476,6 +496,12 @@ def _grow(
         if uat != absorber:
             if data.county[uat] != data.county[absorber]:
                 continue
+            # The cap must be checked when claiming, not only when expanding. Stopping
+            # expansion at the cap still let the last commune inside it push a neighbour one
+            # long edge further, and that neighbour was claimed unchecked — which is how
+            # Reșița reached Teregova at 72.9 km against a 35 km cap.
+            if params.max_road_m > 0 and distance > params.max_road_m:
+                continue
             if uat not in eligible[absorber]:
                 continue
             # Capitals take whatever their radius admits; everyone else stops once they
@@ -487,6 +513,11 @@ def _grow(
         result.region_of[uat] = absorber
         result.members.setdefault(absorber, []).append(uat)
         gathered[absorber] += data.population[uat]
+
+        # Stop expanding once the frontier is further from the centre than anyone should
+        # have to travel to reach their own town hall.
+        if params.max_road_m > 0 and distance >= params.max_road_m:
+            continue
 
         for neighbour in data.neighbours.get(uat, ()):
             if neighbour in result.region_of or neighbour in blocked:
@@ -562,6 +593,16 @@ def orphan_tier(data: Data, params: Params, result: Result) -> None:
                     # has crossed it is frozen rather than repeatedly extended.
                     if cluster_population(partner_root) >= params.p_orphan:
                         continue
+                    # The distance cap applies here too. Clusters are small in population
+                    # but that says nothing about how far apart they are, and an uncapped
+                    # merge here reintroduced exactly the sprawl the cap exists to stop.
+                    if params.max_road_m > 0:
+                        seat_reach = _county_road_distances(data, data.county[root], [root])
+                        if any(
+                            seat_reach.get(m, math.inf) > params.max_road_m
+                            for m in cluster_members[partner_root]
+                        ):
+                            continue
                     combined = cluster_population(root) + cluster_population(partner_root)
                     # Prefer small+small merges, then SIRUTA ascending.
                     key = (combined, partner_root)
@@ -616,6 +657,8 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
     def region_population(absorber: str) -> int:
         return sum(data.population[m] for m in result.members[absorber])
 
+    distance_cache: dict[str, dict[str, float]] = {}
+
     changed = True
     while changed:
         changed = False
@@ -640,24 +683,52 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             if not partners:
                 continue
 
-            # Road distance from this unit's seat to each neighbouring unit's seat.
-            distances = _county_road_distances(data, county, [absorber])
-            still_small = [o for o in partners if region_population(o) < params.p_target]
-            choices = still_small or sorted(partners)
+            # Road distance from a seat to every commune in its county, cached: the loop
+            # asks for the same seats repeatedly as units merge.
+            def reach_from(seat: str) -> dict[str, float]:
+                cached = distance_cache.get(seat)
+                if cached is None:
+                    cached = _county_road_distances(data, data.county[seat], [seat])
+                    distance_cache[seat] = cached
+                return cached
+
+            def standing(unit: str) -> tuple[int, int, str]:
+                tier = result.seeds.get(unit, TIER_PROMOTED + 1)
+                return (tier, -data.population[unit], unit)
+
+            here = reach_from(absorber)
+
+            # A partner is allowed only if, once merged, *every* commune in the combined
+            # unit is within the cap of the seat that survives. Checking from the initiating
+            # seat alone left the cap toothless whenever the partner kept the seat — Măcin
+            # still reached 48 km and Hunedoara 78.
+            def merge_is_compact(
+                other: str,
+                this: str = absorber,
+                this_reach: dict[str, float] = here,
+            ) -> bool:
+                if params.max_road_m <= 0:
+                    return True
+                keeps_seat = standing(this) <= standing(other)
+                reach = this_reach if keeps_seat else reach_from(other)
+                everyone = result.members[this] + result.members[other]
+                return all(reach.get(m, math.inf) <= params.max_road_m for m in everyone)
+
+            reachable = [o for o in sorted(partners) if merge_is_compact(o)]
+            if not reachable:
+                continue
+
+            still_small = [o for o in reachable if region_population(o) < params.p_target]
+            choices = still_small or reachable
             partner = min(
                 choices,
-                key=lambda o: (distances.get(o, math.inf), region_population(o), o),
+                key=lambda o: (here.get(o, math.inf), region_population(o), o),
             )
 
             # Which seat survives is about the standing of the town, not the size the unit
             # happens to have reached: a county capital outranks anything, then a centre
             # outranks a cluster seat, then the larger town wins. Judging by unit population
-            # made Măcin (7,248) the capital of a unit containing Babadag (9,213), purely
-            # because Măcin's side had gathered more communes by that point.
-            def standing(unit: str) -> tuple[int, int, str]:
-                tier = result.seeds.get(unit, TIER_PROMOTED + 1)
-                return (tier, -data.population[unit], unit)
-
+            # made Măcin (7,248) the capital of a unit containing Babadag (9,213).
             keep, drop = (
                 (absorber, partner)
                 if standing(absorber) <= standing(partner)
@@ -793,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--min-overlap", type=float, default=MIN_OVERLAP_DEFAULT)
     ap.add_argument("--p-orphan", type=int, default=P_ORPHAN_DEFAULT)
     ap.add_argument("--p-target", type=int, default=P_TARGET_DEFAULT)
+    ap.add_argument("--max-road", type=int, default=MAX_ROAD_DEFAULT_M)
     args = ap.parse_args(argv)
 
     print("Loading precomputed layers...")
@@ -807,6 +879,7 @@ def main(argv: list[str] | None = None) -> int:
         min_overlap=args.min_overlap,
         p_orphan=args.p_orphan,
         p_target=args.p_target,
+        max_road_m=args.max_road,
     ).snapped()
 
     print(

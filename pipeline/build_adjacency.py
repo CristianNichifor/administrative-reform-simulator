@@ -40,6 +40,15 @@ from pipeline.paths import PROCESSED_DIR, RAW_DIR, REPORTS_DIR
 # about whether *any* road crosses.
 ROAD_CLASS_RANK = {cls: i for i, cls in enumerate(OSM_ROAD_CLASSES)}
 
+# A motorway crossing a border does not connect the two communes either side of it.
+#
+# You cannot join or leave a motorway at an arbitrary point: without a junction it passes
+# over the border, and the two communes are no closer to each other for it. Counting it made
+# 217 borders traversable where in practice there is no way across. Motorways stay in the
+# routing graph — once you are on one it is a real road — but they cannot be the thing that
+# makes a border passable.
+CLASSES_WITHOUT_LOCAL_ACCESS = frozenset({"motorway"})
+
 # A leftid/rightid of 0 means the other side of the segment is outside Romania.
 EXTERIOR_CODE = "0"
 
@@ -241,7 +250,16 @@ def flag_road_crossings(
     ]
     crossing = near[keep]
 
-    n_dropped = len(near) - len(crossing)
+    # Drop crossings that only a motorway makes, for want of a junction. Guarded for the
+    # empty case: a frame with no rows has no columns either, so the lookup would raise.
+    if crossing.empty:
+        n_motorway = 0
+    else:
+        motorway_only = crossing["highway"].isin(CLASSES_WITHOUT_LOCAL_ACCESS)
+        n_motorway = int(motorway_only.sum())
+        crossing = crossing[~motorway_only]
+
+    n_dropped = len(near) - len(crossing) - n_motorway
     report.add(
         Check(
             "parallel_roads_rejected",
@@ -270,6 +288,15 @@ def flag_road_crossings(
             .first()[["edge_id", "highway"]]
             .rename(columns={"highway": "road_class"})
         )
+
+    report.add(
+        Check(
+            "motorway_only_crossings_rejected",
+            True,
+            f"{n_motorway:,} road/border matches were motorways without a junction, which "
+            "carry traffic past a border rather than across it",
+        )
+    )
 
     out = pairs.merge(best, on="edge_id", how="left")
     out["has_road"] = out["road_class"].notna()

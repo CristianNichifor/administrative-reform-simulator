@@ -26,6 +26,7 @@ const KEYS: Record<keyof Params, string> = {
   minOverlap: 'ov',
   pOrphan: 'po',
   pTarget: 'pt',
+  maxRoadM: 'mr',
 };
 
 export function encode(scenario: Scenario): string {
@@ -63,6 +64,7 @@ export function decode(hash: string, lang: Lang): Scenario {
       minOverlap: num(q.get(KEYS.minOverlap), DEFAULT_PARAMS.minOverlap),
       pOrphan: num(q.get(KEYS.pOrphan), DEFAULT_PARAMS.pOrphan),
       pTarget: num(q.get(KEYS.pTarget), DEFAULT_PARAMS.pTarget),
+      maxRoadM: num(q.get(KEYS.maxRoadM), DEFAULT_PARAMS.maxRoadM),
     },
     lang: (q.get('lang') as Lang) ?? lang,
     mode: q.get('mode') === 'cost' ? 'cost' : 'regions',

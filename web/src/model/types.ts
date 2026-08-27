@@ -44,6 +44,8 @@ export interface Params {
   pOrphan: number;
   /** Minimum population a resulting unit should reach. Zero disables the step. */
   pTarget: number;
+  /** How far a commune may be from its centre by road. Zero disables the cap. */
+  maxRoadM: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -51,11 +53,12 @@ export const DEFAULT_PARAMS: Params = {
   rNationalM: 15_000,
   rCapM: 10_000,
   rTownM: 10_000,
-  nMin: 1,
+  nMin: 5,
   rSepM: 15_000,
   minOverlap: 0.1,
   pOrphan: 5_000,
   pTarget: 50_000,
+  maxRoadM: 50_000,
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */

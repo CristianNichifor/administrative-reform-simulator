@@ -7,10 +7,18 @@ national map was wrong.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from pipeline.paths import PROCESSED_DIR
-from pipeline.reference_model import Params, load_data, run
+from pipeline.reference_model import (
+    Params,
+    _county_capital,
+    _county_road_distances,
+    load_data,
+    run,
+)
 
 REQUIRED = [
     PROCESSED_DIR / "uat_geometry.gpkg",
@@ -31,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 183
+SNAPSHOT_DEFAULT_REGIONS = 278
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -116,7 +124,7 @@ class TestHeldAbsorbers:
             neighbours = set(data.neighbours.get(absorber, ()))
             assert neighbours & capitals, f"{absorber} was held without bordering a capital"
 
-    def test_a_failed_hold_does_not_survive_alone(self, data, default_run) -> None:
+    def test_a_failed_hold_is_absorbed_unless_the_cap_forbids_it(self, data, default_run) -> None:
         """A held centre that could not reach the target is absorbed by someone.
 
         Usually its county capital, which is the point of the rule. But not always: a
@@ -126,13 +134,23 @@ class TestHeldAbsorbers:
         assertion is the one that actually holds: it is absorbed, and by something in its
         own county.
         """
-        result, _ = default_run
+        result, summary = default_run
+        max_road = summary["params"].max_road_m
         for absorber, survived in result.held.items():
             if survived:
                 continue
             region = result.region_of[absorber]
-            assert region != absorber, f"{absorber} failed its target but kept its own region"
             assert data.county[region] == data.county[absorber]
+            if region == absorber:
+                # Allowed only when folding would have breached the distance cap: a held
+                # centre gathers up to the cap from itself, so folding it wholesale can put
+                # communes twice the cap from the capital.
+                capital = _county_capital(data, data.county[absorber])
+                assert capital is not None
+                reach = _county_road_distances(data, data.county[absorber], [capital])
+                assert any(reach.get(m, math.inf) > max_road for m in result.members[absorber]), (
+                    f"{absorber} kept its own region for no reason"
+                )
 
     @pytest.mark.parametrize("target", [0, 25_000, 50_000])
     def test_no_commune_is_assigned_twice(self, data, target: int) -> None:
@@ -218,22 +236,38 @@ class TestMinimumTargetPopulation:
         counts = [run(data, Params(p_target=t))[1]["regions"] for t in (0, 10_000, 50_000)]
         assert counts == sorted(counts, reverse=True)
 
-    def test_units_below_target_have_no_same_county_neighbour(self, data) -> None:
-        # A unit may finish under the target, but only because every neighbour it has lies
-        # across a county line. If one had a same-county neighbour and still finished short,
-        # the consolidation loop stopped early.
-        result, _ = run(data, Params(p_target=50_000))
+    def test_units_below_target_are_blocked_by_distance_or_isolation(self, data) -> None:
+        """A unit may finish under the target, but only for a reason.
+
+        Either it has no same-county neighbour at all, or merging with every one of them
+        would put some commune beyond the distance cap. Anything else means the
+        consolidation loop stopped early and left a unit smaller than it needed to be.
+        """
+        params = Params(p_target=50_000)
+        result, _ = run(data, params)
+
+        def standing(unit: str) -> tuple[int, int, str]:
+            return (result.seeds.get(unit, 99), -data.population[unit], unit)
+
         for absorber, members in result.members.items():
-            population = sum(data.population[m] for m in members)
-            if population >= 50_000:
+            if sum(data.population[m] for m in members) >= params.p_target:
                 continue
             neighbours = {
                 result.region_of[n]
                 for m in members
                 for n in data.neighbours.get(m, ())
                 if data.county[n] == data.county[m]
-            }
-            assert neighbours <= {absorber}, f"{absorber} could still have merged"
+            } - {absorber}
+
+            for other in neighbours:
+                # Measured from whichever seat survives the merge, which is what the model
+                # itself checks — not from whichever unit happens to be initiating.
+                keeps = absorber if standing(absorber) <= standing(other) else other
+                reach = _county_road_distances(data, data.county[keeps], [keeps])
+                everyone = result.members[absorber] + result.members[other]
+                assert any(reach.get(m, math.inf) > params.max_road_m for m in everyone), (
+                    f"{absorber} could still have merged with {other}"
+                )
 
     @pytest.mark.parametrize("target", [10_000, 50_000, 100_000])
     def test_consolidation_never_crosses_a_county(self, data, target: int) -> None:
@@ -262,10 +296,11 @@ class TestParameterResponse:
         assert without["orphan_regions"] == 0
 
     def test_larger_radii_never_produce_more_regions(self, data) -> None:
-        # A bigger buffer strictly contains a smaller one, so absorbers can only reach
-        # further. More reach cannot mean more regions.
-        tight = run(data, Params(r_cap_m=10_000, r_town_m=5_000))[1]
-        wide = run(data, Params(r_cap_m=30_000, r_town_m=30_000))[1]
+        # A bigger buffer strictly contains a smaller one, so centres reach further. Held
+        # with the distance cap off, since the cap — not the radius — then decides how far
+        # a unit extends, and the two no longer move together.
+        tight = run(data, Params(r_cap_m=10_000, r_town_m=5_000, max_road_m=0))[1]
+        wide = run(data, Params(r_cap_m=30_000, r_town_m=30_000, max_road_m=0))[1]
         assert wide["regions"] <= tight["regions"]
 
     def test_savings_are_never_negative(self, data) -> None:

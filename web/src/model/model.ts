@@ -186,6 +186,10 @@ function selectSeeds(data: ModelData, params: Params): {
   );
 
   for (const county of countyOrder) {
+    // Bucharest is one city, not a county needing a spread of centres. Promotion here made
+    // four of its six sectors centres in their own right — the duplication the merge exists
+    // to remove.
+    if (county === data.bucharestCounty) continue;
     const uats = byCounty.get(county)!;
     const seedsHere = uats.filter((i) => tierOf[i] !== -1);
     if (seedsHere.length >= params.nMin) continue;
@@ -325,6 +329,17 @@ function accrete(
     if (regionOf[absorber] !== absorber) continue;
     const capital = data.capitalOfCounty.get(data.countyOf[absorber]!);
     if (capital === undefined || !members.has(capital)) continue;
+    // Folding respects the cap like every other merge. A held centre gathers up to the cap
+    // from itself, so folding it wholesale put communes twice the cap from the capital.
+    // Where that would happen it keeps its own unit and is reported as below target, which
+    // is honest rather than a silently oversized region.
+    if (params.maxRoadM > 0) {
+      const reach = countyRoadDistances(data, data.countyOf[capital]!, [capital]);
+      const tooFar = (members.get(absorber) ?? [absorber]).some(
+        (m) => (reach.get(m) ?? Infinity) > params.maxRoadM,
+      );
+      if (tooFar) continue;
+    }
     for (const m of members.get(absorber) ?? []) {
       regionOf[m] = capital;
       members.get(capital)!.push(m);
@@ -410,6 +425,11 @@ function grow(
 
     if (uat !== absorber) {
       if (data.countyOf[uat] !== data.countyOf[absorber]) continue;
+      // The cap is checked when claiming, not only when expanding. Stopping expansion at
+      // the cap still let the last commune inside it push a neighbour one long edge
+      // further, and that neighbour was claimed unchecked — Reșița reached 72.9 km against
+      // a 35 km cap that way.
+      if (params.maxRoadM > 0 && distance > params.maxRoadM) continue;
       const admitted = eligible.get(absorber)!;
       if (!admitted.has(uat)) continue;
       // Capitals take whatever their radius admits; everyone else stops once they have
@@ -436,10 +456,18 @@ function grow(
     list.push(uat);
     gathered.set(absorber, gathered.get(absorber)! + data.population[uat]!);
 
+    if (params.maxRoadM > 0 && distance >= params.maxRoadM) continue;
+
     for (let e = data.neighbourStart[uat]!; e < data.neighbourStart[uat + 1]!; e += 1) {
       const nb = data.neighbours[e]!;
       if (regionOf[nb] !== NO_REGION || blocked.has(nb)) continue;
-      push(distance + data.neighbourRoadM[e]!, absorber, nb);
+      // Growth never routes through another county: a region cannot occupy one, so a path
+      // that leaves and comes back is not a path the unit holds — and counting it made the
+      // distance cap unenforceable.
+      if (data.countyOf[nb] !== data.countyOf[absorber]) continue;
+      const next = distance + data.neighbourRoadM[e]!;
+      if (params.maxRoadM > 0 && next > params.maxRoadM) continue;
+      push(next, absorber, nb);
     }
   }
 }
@@ -498,6 +526,15 @@ function orphanTier(
           // 2,000 to 4,000, so any pair clears 5,000 — and leaves the tiny communes
           // untouched, which is the failure this tier exists to prevent.
           if (populationOf(partner) >= params.pOrphan) continue;
+          // The cap applies here too. Clusters are small in population, which says nothing
+          // about how far apart they are, and an uncapped merge reintroduced the sprawl.
+          if (params.maxRoadM > 0) {
+            const reach = countyRoadDistances(data, data.countyOf[root]!, [root]);
+            const tooFar = members
+              .get(partner)!
+              .some((m) => (reach.get(m) ?? Infinity) > params.maxRoadM);
+            if (tooFar) continue;
+          }
 
           const combined = populationOf(root) + populationOf(partner);
           if (combined < bestCombined || (combined === bestCombined && partner < bestPartner)) {
@@ -608,8 +645,35 @@ function consolidateToTarget(
         // adjacent, so satisfied units are not inflated by their neighbours merging in.
         const county = data.countyOf[region]!;
         const distances = countyRoadDistances(data, county, [region]);
-        const stillSmall = [...partners].filter((o) => populationOf(o) < params.pTarget);
-        const choices = (stillSmall.length > 0 ? stillSmall : [...partners]).sort((a, b) => a - b);
+
+        const standingOf = (unit: number): [number, number, number] => [
+          tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
+          -data.population[unit]!,
+          unit,
+        ];
+        const beats = (a: number, b: number): boolean => {
+          const sa = standingOf(a);
+          const sb = standingOf(b);
+          return sa[0] !== sb[0] ? sa[0] < sb[0] : sa[1] !== sb[1] ? sa[1] < sb[1] : sa[2] <= sb[2];
+        };
+
+        // Allowed only if, once merged, every commune in the combined unit is within the
+        // cap of the seat that survives. Checking from the initiating seat alone left the
+        // cap toothless whenever the partner kept the seat.
+        const compact = (other: number): boolean => {
+          if (params.maxRoadM <= 0) return true;
+          const keepSeat = beats(region, other) ? region : other;
+          const reach =
+            keepSeat === region ? distances : countyRoadDistances(data, county, [other]);
+          const everyone = [...members.get(region)!, ...members.get(other)!];
+          return everyone.every((m) => (reach.get(m) ?? Infinity) <= params.maxRoadM);
+        };
+
+        const reachable = [...partners].filter(compact);
+        if (reachable.length === 0) continue;
+
+        const stillSmall = reachable.filter((o) => populationOf(o) < params.pTarget);
+        const choices = (stillSmall.length > 0 ? stillSmall : reachable).sort((a, b) => a - b);
         let partner = choices[0]!;
         for (const candidate of choices) {
           const dc = distances.get(candidate) ?? Infinity;
@@ -620,19 +684,8 @@ function consolidateToTarget(
         }
 
         // Which seat survives is about the standing of the town, not the size its unit
-        // happens to have reached: county capital outranks a centre, a centre outranks a
-        // cluster seat, then the larger town wins. Judging by unit population made Măcin
-        // (7,248) the capital of a unit containing Babadag (9,213).
-        const standing = (unit: number): [number, number, number] => [
-          tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
-          -data.population[unit]!,
-          unit,
-        ];
-        const sa = standing(region);
-        const sb = standing(partner);
-        const regionWins =
-          sa[0] !== sb[0] ? sa[0] < sb[0] : sa[1] !== sb[1] ? sa[1] < sb[1] : sa[2] <= sb[2];
-        const keep = regionWins ? region : partner;
+        // happens to have reached.
+        const keep = beats(region, partner) ? region : partner;
         const drop = keep === region ? partner : region;
 
         const moved = members.get(drop)!;

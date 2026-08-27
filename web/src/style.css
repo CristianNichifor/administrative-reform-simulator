@@ -538,6 +538,59 @@ button {
   color: #cfd5dd;
 }
 
+.hovercard {
+  position: absolute;
+  z-index: 7;
+  pointer-events: none;
+  padding: 9px 11px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 260px;
+}
+
+.hovercard[hidden] {
+  display: none;
+}
+
+.hovercard .name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.hovercard .county {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+}
+
+.hovercard .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.hovercard .line span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hovercard .after {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+}
+
+.hovercard .after .unit {
+  color: var(--muted);
+}
+
 /* --- loading ------------------------------------------------------------------------ */
 .loading {
   position: absolute;

@@ -126,6 +126,8 @@ export interface MapHandle {
   ) => void;
   setSelected: (index: number | null) => void;
   onSelect: (handler: (index: number | null) => void) => void;
+  /** Fires as the pointer moves over the map; index is null when it leaves. */
+  onHover: (handler: (index: number | null, x: number, y: number) => void) => void;
   /** Show or hide a context layer. Roads are fetched the first time they are shown. */
   setOverlay: (overlay: Overlay, visible: boolean) => Promise<void>;
   /**
@@ -374,6 +376,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
 
   let selected: number | null = null;
   const selectHandlers: ((index: number | null) => void)[] = [];
+  const hoverHandlers: ((index: number | null, x: number, y: number) => void)[] = [];
 
   map.on('click', FILL_LAYER, (event: MapMouseEvent & { features?: { id?: string | number }[] }) => {
     const feature = event.features?.[0];
@@ -389,6 +392,11 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
   });
   map.on('mouseleave', FILL_LAYER, () => {
     map.getCanvas().style.cursor = '';
+    for (const handler of hoverHandlers) handler(null, 0, 0);
+  });
+  map.on('mousemove', FILL_LAYER, (event: MapMouseEvent & { features?: { id?: string | number }[] }) => {
+    const id = typeof event.features?.[0]?.id === 'number' ? event.features[0].id : null;
+    for (const handler of hoverHandlers) handler(id, event.point.x, event.point.y);
   });
 
   const setSelected = (index: number | null): void => {
@@ -433,6 +441,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     applyAssignment,
     setSelected,
     onSelect: (handler) => selectHandlers.push(handler),
+    onHover: (handler) => hoverHandlers.push(handler),
     setOverlay,
     setCentres,
   };
