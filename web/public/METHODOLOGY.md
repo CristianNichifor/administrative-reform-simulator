@@ -281,6 +281,20 @@ formula to all operating spending, is shown as an explicit **upper bound** — i
 seven times larger and it assumes the absorbed commune's schools and social services vanish
 along with its mayor. It should not be quoted on its own.
 
+**What the map draws is not what the model routes on.** The model measures distances over
+the whole public network — motorway, trunk, primary, secondary, tertiary, unclassified,
+residential, living street, and every link road: 14 OSM classes, 511,000 ways. A drum
+județean is `secondary` or `tertiary`, so county roads have always been in the routing.
+
+The map, however, drew only motorway, trunk and primary, which made it look as though
+routing knew nothing but the national network. County and communal roads are now their own
+toggle — 87,586 segments, loaded on demand, drawn thinner and fading in as you zoom, because
+together with the national roads at country zoom they are a smear rather than information.
+
+Of the 9,281 adjacent seat pairs, 195 have no road route at all and fall back to straight-line
+distance; most are Vrancea and Delta communes where the road genuinely does not connect. The
+median route is 1.38 times the straight line, the 99th percentile 4.3 times.
+
 **Roads decide two different things.** Whether a border may be crossed at all is a yes/no
 test: a road counts if it passes near the shared border *and* enters both communes, so a
 road running parallel along one side of a boundary is not a connection across it. Which
@@ -606,6 +620,22 @@ Prin urmare, economia principală numără doar administrația. Cifra mai mare, 
 aceeași formulă tuturor cheltuielilor de funcționare, este afișată explicit ca **limită
 superioară** — este de circa șapte ori mai mare și presupune că școlile și serviciile
 sociale ale comunei absorbite dispar odată cu primarul. Nu ar trebui citată singură.
+
+**Ce desenează harta nu este ce folosește modelul pentru rutare.** Modelul măsoară distanțele
+pe întreaga rețea publică — autostradă, drum expres, drum principal, secundar, terțiar,
+neclasificat, rezidențial, stradă locală și toate bretelele: 14 clase OSM, 511.000 de căi. Un
+drum județean este `secondary` sau `tertiary`, deci drumurile județene au fost dintotdeauna în
+rutare.
+
+Harta însă desena doar autostrăzile, drumurile expres și cele principale, ceea ce făcea să
+pară că rutarea nu știe decât de rețeaua națională. Drumurile județene și comunale au acum
+propriul comutator — 87.586 de segmente, încărcate la cerere, desenate mai subțire și apărând
+treptat pe măsură ce se apropie zoom-ul, pentru că împreună cu cele naționale, la zoom pe
+toată țara, sunt o pată, nu informație.
+
+Din cele 9.281 de perechi de sedii vecine, 195 nu au deloc rută rutieră și cad înapoi pe
+distanța în linie dreaptă; majoritatea sunt comune din Vrancea și din Deltă unde drumul chiar
+nu face legătura. Ruta mediană este de 1,38 ori linia dreaptă, percentila 99 de 4,3 ori.
 
 **Drumurile sunt un test da/nu, nu o distanță.** Modelul verifică doar dacă un drum
 traversează granița dintre două comune. Nu măsoară timp de deplasare sau distanță rutieră.

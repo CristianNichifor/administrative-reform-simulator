@@ -167,6 +167,7 @@ async function boot(): Promise<void> {
     seats: false,
     capitals: true,
     roads: false,
+    countyRoads: false,
   };
 
   const renderLayers = (): void => {
@@ -176,6 +177,13 @@ async function boot(): Promise<void> {
       ['capitals', strings.layerCapitals, CAPITAL_COLOUR, true, ''],
       ['seats', strings.layerSeats, SEAT_COLOUR, true, ''],
       ['roads', strings.layerRoads, ROAD_COLOUR, false, strings.layersRoadsNote],
+      [
+        'countyRoads',
+        strings.layerCountyRoads,
+        ROAD_COLOUR,
+        false,
+        strings.layersCountyRoadsNote,
+      ],
     ];
     el('#layers').innerHTML = rows
       .map(

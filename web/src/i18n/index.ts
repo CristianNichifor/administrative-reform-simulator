@@ -66,6 +66,8 @@ export interface Strings {
   layerCapitals: string;
   layerRoads: string;
   layersRoadsNote: string;
+  layerCountyRoads: string;
+  layersCountyRoadsNote: string;
 
   whyTitle: string;
   whyCapital: string;
@@ -200,6 +202,8 @@ const ro: Strings = {
   layerCapitals: 'Centre absorbante',
   layerRoads: 'Drumuri principale',
   layersRoadsNote: 'se descarcă la prima activare (4,5 MB)',
+  layerCountyRoads: 'Drumuri județene și comunale',
+  layersCountyRoadsNote: 'rețeaua pe care modelul calculează majoritatea distanțelor · 7,4 MB la prima activare',
 
   whyTitle: 'De ce',
   whyCapital: 'Reședință de județ — este centru prin regulă, indiferent de mărime.',
@@ -339,6 +343,8 @@ const en: Strings = {
   layerCapitals: 'Absorbing centres',
   layerRoads: 'Major roads',
   layersRoadsNote: 'downloaded on first use (4.5 MB)',
+  layerCountyRoads: 'County and communal roads',
+  layersCountyRoadsNote: 'the network the model measures most distances over · 7.4 MB on first use',
 
   whyTitle: 'Why',
   whyCapital: 'County capital — a centre by rule, whatever its size.',

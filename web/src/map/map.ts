@@ -35,7 +35,7 @@ export const REGION_OUTLINE = 'region-outline';
 export const UAT_OUTLINE = 'uat-outline';
 
 /** Optional context layers, each toggled independently. */
-export const OVERLAYS = ['counties', 'regions', 'seats', 'capitals', 'roads'] as const;
+export const OVERLAYS = ['counties', 'regions', 'seats', 'capitals', 'roads', 'countyRoads'] as const;
 export type Overlay = (typeof OVERLAYS)[number];
 
 /**
@@ -346,6 +346,37 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
   const loadedOverlays = new Set<Overlay>();
 
   const setOverlay = async (overlay: Overlay, visible: boolean): Promise<void> => {
+    // County and communal roads: the network the model routes most of its distances over.
+    // Drawn thinner than the national roads and only once zoomed in, because at national
+    // zoom 136,000 ways is a smear rather than information.
+    if (overlay === 'countyRoads') {
+      if (visible && !loadedOverlays.has('countyRoads')) {
+        map.addSource('county-roads', {
+          type: 'geojson',
+          data: `${dataBase}roads-county.geojson`,
+        });
+        map.addLayer(
+          {
+            id: 'county-roads-line',
+            type: 'line',
+            source: 'county-roads',
+            paint: {
+              'line-color': ROAD_COLOUR,
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.15, 8, 0.4, 10, 0.6],
+              'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 9, 0.6, 12, 1.2],
+            },
+          },
+          UAT_OUTLINE,
+        );
+        loadedOverlays.add('countyRoads');
+        return;
+      }
+      if (loadedOverlays.has('countyRoads')) {
+        map.setLayoutProperty('county-roads-line', 'visibility', visible ? 'visible' : 'none');
+      }
+      return;
+    }
+
     if (overlay === 'roads') {
       // Fetched on first use only: at 4.5 MB it is by far the largest artefact, and most
       // visits never turn it on.

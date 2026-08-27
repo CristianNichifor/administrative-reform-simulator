@@ -53,6 +53,15 @@ OVERLAP_SCALE = 100
 ROAD_CONTEXT_CLASSES = ("motorway", "trunk", "primary")
 ROAD_SIMPLIFY_M = 300
 
+# County and communal roads, drawn as their own layer.
+#
+# These are the roads the model routes most of its distances over — a drum judetean is
+# `secondary` or `tertiary` in OSM — so drawing only the national network made the map look
+# as though routing knew nothing but motorways. Separate file and separate toggle: together
+# with the major roads they are an unreadable smear at national zoom, and the file is large.
+ROAD_COUNTY_CLASSES = ("secondary", "tertiary")
+ROAD_COUNTY_SIMPLIFY_M = 150
+
 
 def load() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     paths = {
@@ -254,22 +263,22 @@ def main(argv: list[str] | None = None) -> int:
     #
     # Simplified hard and rounded to about 11 m. The model did its road test at full
     # resolution against the untouched extract; this copy is only ever drawn.
-    roads_out = WEB_DATA_DIR / "roads.geojson"
     pbf = RAW_DIR / "romania-latest.osm.pbf"
-    if pbf.exists():
-        classes = ",".join(f"'{c}'" for c in ROAD_CONTEXT_CLASSES)
+
+    def write_roads(out_name: str, classes: tuple[str, ...], simplify_m: float) -> int:
+        selector = ",".join(f"'{c}'" for c in classes)
         roads = gpd.read_file(
             pbf,
             layer="lines",
             columns=["highway"],
-            where=f"highway IN ({classes})",
+            where=f"highway IN ({selector})",
             engine="pyogrio",
         )
         roads = roads.set_crs(CRS_WGS84).to_crs(CRS_STEREO70)
         roads = roads.dissolve(by="highway", as_index=False)
-        roads["geometry"] = roads.geometry.simplify(ROAD_SIMPLIFY_M)
+        roads["geometry"] = roads.geometry.simplify(simplify_m)
         roads = roads.to_crs(CRS_WGS84)
-        road_features = [
+        features = [
             {
                 "type": "Feature",
                 "properties": {"highway": r.highway},
@@ -280,19 +289,26 @@ def main(argv: list[str] | None = None) -> int:
             }
             for r in roads.itertuples()
         ]
-        roads_out.write_text(
-            json.dumps(
-                {"type": "FeatureCollection", "features": road_features}, separators=(",", ":")
-            ),
+        (WEB_DATA_DIR / out_name).write_text(
+            json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")),
             encoding="utf-8",
         )
+        return len(features)
+
+    roads_out = WEB_DATA_DIR / "roads.geojson"
+    county_roads_out = WEB_DATA_DIR / "roads-county.geojson"
+    if pbf.exists():
+        write_roads("roads.geojson", ROAD_CONTEXT_CLASSES, ROAD_SIMPLIFY_M)
+        write_roads("roads-county.geojson", ROAD_COUNTY_CLASSES, ROAD_COUNTY_SIMPLIFY_M)
         report.add(
             Check(
                 "road_context_layer",
                 True,
-                f"{len(road_features)} road classes "
-                f"({', '.join(ROAD_CONTEXT_CLASSES)}), "
-                f"{roads_out.stat().st_size / 1_048_576:.2f} MB, loaded on demand only",
+                f"major roads ({', '.join(ROAD_CONTEXT_CLASSES)}) "
+                f"{roads_out.stat().st_size / 1_048_576:.2f} MB; county roads "
+                f"({', '.join(ROAD_COUNTY_CLASSES)}) "
+                f"{county_roads_out.stat().st_size / 1_048_576:.2f} MB — "
+                "separate toggles, both loaded on demand only",
             )
         )
     elif not roads_out.exists():
@@ -301,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
                 "road_context_layer",
                 True,
                 "skipped — no OSM extract present (run fetch --with-roads); the roads "
-                "toggle will be unavailable",
+                "toggles will be unavailable",
             )
         )
 
@@ -430,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     # Two budgets, because they answer different questions. The eager payload is what a
     # reader waits for before the map appears; roads.geojson is fetched only if the layer is
     # switched on, so counting it against first paint would be misleading.
-    LAZY = {"roads.geojson"}
+    LAZY = {"roads.geojson", "roads-county.geojson"}
     sizes = {
         p.name: p.stat().st_size
         for p in sorted(WEB_DATA_DIR.glob("*"))
