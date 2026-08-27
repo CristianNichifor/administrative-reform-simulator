@@ -39,7 +39,14 @@ If a county ends up with fewer centres than the minimum you set, more are promot
 chosen by *how much uncovered population they would reach*, not by how large they are.
 This matters: choosing by size alone bunches every centre into whichever corner of the
 county is densest, which is exactly the failure this step exists to prevent. Promoted
-centres must also sit a minimum distance apart. Where that is impossible, the requirement is
+centres must also sit a minimum distance apart **by road**, measured through the county
+rather than across it.
+
+The minimum defaults to one — no constraint. At a 7,500 threshold the fallback is barely
+needed, and left higher it does active harm in sparse counties: Tulcea has two natural
+centres, so a minimum of five promoted Sarichioi into a centre of its own instead of letting
+it join Babadag, 16 km away by road and sharing a border with it. Raise the threshold and
+the fallback becomes useful again, which is why the slider stays. Where that is impossible, the requirement is
 relaxed in steps, and if it still cannot be met the county is reported as **under-seeded**
 rather than quietly fudged.
 
@@ -106,11 +113,11 @@ line. They are reported, never forced.
 
 | Parameter | Default | Range | What it does |
 |---|---|---|---|
-| Absorber population threshold | 15,000 | 5,000 – 50,000 | Localities above this become centres |
+| Absorber population threshold | 7,500 | 5,000 – 50,000 | Localities above this become centres |
 | County-capital radius | 15 km | 5 – 30 km | How far a county capital reaches |
 | Other-absorber radius | 10 km | 5 – 30 km | How far every other centre reaches |
-| Minimum centres per county | 5 | 1 – 10 | Below this, more centres are promoted |
-| Minimum separation | 15 km | 0 – 30 km | Keeps promoted centres apart |
+| Minimum centres per county | 1 (no constraint) | 1 – 10 | Below this, more centres are promoted |
+| Minimum separation | 15 km by road | 0 – 30 km | Keeps promoted centres apart |
 | Minimum overlap | 10% | 0 – 50% | How much of a commune must fall inside the radius |
 | Leftover threshold | 5,000 | 0 (off) – 15,000 | How large a leftover cluster may grow |
 | Minimum resulting population | 0 (off) | 0 – 100,000 | Merges units that finish below this |
@@ -255,6 +262,11 @@ Acesta este întregul scop și merită un scor mai slab la compactitate.
 Două categorii devin automat centre de absorbție: cele 41 de reședințe de județ plus cele
 șase sectoare ale Bucureștiului, și orice localitate peste pragul de populație ales.
 
+Minimul este implicit unu — adică fără constrângere. La un prag de 7.500 această rezervă
+aproape nu este necesară, iar lăsată mai sus face rău în județele rare: Tulcea are două
+centre naturale, așa că un minim de cinci a promovat Sarichioi drept centru propriu în loc
+să îl lase să se alăture Babadagului, la 16 km pe drum și cu graniță comună.
+
 Dacă un județ rămâne cu mai puține centre decât minimul stabilit, se promovează altele. Sunt
 alese după *câtă populație neacoperită ar cuprinde*, nu după cât de mari sunt. Acest lucru
 contează: alegerea după mărime grupează toate centrele în colțul cel mai dens al județului,
@@ -317,11 +329,11 @@ Ce rămâne neunit și după acest pas rămâne pur și simplu așa cum este ast
 
 | Parametru | Implicit | Interval | Ce face |
 |---|---|---|---|
-| Prag populație absorbant | 15.000 | 5.000 – 50.000 | Localitățile peste acest prag devin centre |
+| Prag populație absorbant | 7.500 | 5.000 – 50.000 | Localitățile peste acest prag devin centre |
 | Rază reședință de județ | 15 km | 5 – 30 km | Cât de departe ajunge o reședință de județ |
 | Rază alte centre | 10 km | 5 – 30 km | Cât de departe ajung celelalte centre |
-| Minim centre per județ | 5 | 1 – 10 | Sub acest număr se promovează centre |
-| Distanță minimă | 15 km | 0 – 30 km | Menține centrele promovate depărtate |
+| Minim centre per județ | 1 (fără constrângere) | 1 – 10 | Sub acest număr se promovează centre |
+| Distanță minimă | 15 km pe drum | 0 – 30 km | Menține centrele promovate depărtate |
 | Suprapunere minimă | 10% | 0 – 50% | Cât din comună trebuie să intre în rază |
 | Prag comune rămase | 5.000 | 0 (oprit) – 15.000 | Cât de mare poate crește o grupare |
 | Populație minimă rezultată | 0 (oprit) | 0 – 100.000 | Unește unitățile rămase sub acest prag |

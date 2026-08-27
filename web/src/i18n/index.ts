@@ -118,7 +118,7 @@ const ro: Strings = {
   nMin: 'Minim centre per județ',
   nMinHelp: 'Dacă un județ are mai puține, se promovează centre suplimentare.',
   rSep: 'Distanță minimă între centre',
-  rSepHelp: 'Împiedică gruparea centrelor promovate într-un singur colț.',
+  rSepHelp: 'Distanță pe drum. Împiedică gruparea centrelor promovate într-un singur colț.',
   minOverlap: 'Suprapunere minimă',
   minOverlapHelp:
     'Cât din suprafața unei comune trebuie să intre în rază. Împiedică absorbțiile pe baza unei atingeri de câțiva metri.',
@@ -218,7 +218,7 @@ const en: Strings = {
   nMin: 'Minimum centres per county',
   nMinHelp: 'Where a county has fewer, additional centres are promoted.',
   rSep: 'Minimum separation between centres',
-  rSepHelp: 'Stops promoted centres bunching into one corner of a county.',
+  rSepHelp: 'Measured by road. Stops promoted centres bunching into one corner of a county.',
   minOverlap: 'Minimum overlap',
   minOverlapHelp:
     'How much of a commune must fall inside the radius. Prevents absorptions based on a few metres of contact.',

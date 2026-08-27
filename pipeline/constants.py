@@ -19,14 +19,27 @@ CRS_WGS84: Final = "EPSG:4326"
 # --- Model parameters ---------------------------------------------------------------
 # Defaults and UI ranges. Distances in metres; the UI presents kilometres.
 
-ABSORBER_POP_THRESHOLD_DEFAULT: Final = 15_000
+# Every UAT above this is a candidate to be a centre. 7,500 rather than the brief's 15,000:
+# at 15,000 only 134 UATs qualify nationally, so most counties fall back on promotion to
+# reach their minimum, and the map is shaped more by that fallback than by the threshold.
+# At 7,500 the candidate set is 686 and the threshold does the work it is there to do.
+ABSORBER_POP_THRESHOLD_DEFAULT: Final = 7_500
 ABSORBER_POP_THRESHOLD_RANGE: Final = (5_000, 50_000)
 
 R_CAP_DEFAULT_M: Final = 15_000
 R_TOWN_DEFAULT_M: Final = 10_000
 RADIUS_RANGE_M: Final = (5_000, 30_000)
 
-N_MIN_DEFAULT: Final = 5
+# Off by default, in the sense that one centre per county is no constraint at all.
+#
+# Promotion exists as a fallback for a county the threshold leaves nearly empty. At a 7,500
+# threshold it is barely needed: N_min=1 yields 343 centres with no promotions and no
+# under-seeded county, against 354 with 11 promotions at N_min=5. Left at 5 it does active
+# harm in sparse counties — Tulcea has two natural centres, so it promotes Sarichioi into a
+# centre of its own rather than letting it join Babadag 16 km away by road.
+#
+# It matters again when the threshold is raised, which is why the slider stays.
+N_MIN_DEFAULT: Final = 1
 N_MIN_RANGE: Final = (1, 10)
 
 R_SEP_DEFAULT_M: Final = 15_000

@@ -28,10 +28,10 @@ pytestmark = pytest.mark.skipif(
 # The default scenario, pinned. Brief §7: any change to the region count is a deliberate
 # decision, never an accident. If this fails, work out which rule changed before updating it.
 #
-# Was 682 while conflicts were resolved by processing order. Now 658, because a commune
-# joins the centre nearest to it by road rather than whichever centre happened to be
-# processed first.
-SNAPSHOT_DEFAULT_REGIONS = 658
+# 682 while conflicts were resolved by processing order; 658 once a commune joined the
+# centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
+# fallback stopped promoting communes that had a real centre next door.
+SNAPSHOT_DEFAULT_REGIONS = 749
 SNAPSHOT_DEFAULT_UATS = 3186
 
 

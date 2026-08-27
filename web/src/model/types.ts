@@ -43,10 +43,10 @@ export interface Params {
 }
 
 export const DEFAULT_PARAMS: Params = {
-  x: 15_000,
+  x: 7_500,
   rCapM: 15_000,
   rTownM: 10_000,
-  nMin: 5,
+  nMin: 1,
   rSepM: 15_000,
   minOverlap: 0.1,
   pOrphan: 5_000,

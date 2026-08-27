@@ -209,6 +209,36 @@ def _distance(data: Data, a: str, b: str) -> float:
     return math.hypot(ax - bx, ay - by)
 
 
+def _county_road_distances(data: Data, county: str, sources: list[str]) -> dict[str, float]:
+    """Road distance from the nearest of `sources` to every UAT in the county.
+
+    Separation between centres is a road distance like everything else in the model, and
+    centres are rarely adjacent, so it cannot come from the per-edge table directly. This
+    walks the UAT graph inside one county using those per-edge distances as weights — the
+    same numbers, and the same notion of distance, that accretion uses.
+
+    Confined to the county because a region may never cross a county line, so a route that
+    leaves and comes back is not one this model would ever travel.
+    """
+    best: dict[str, float] = {s: 0.0 for s in sources}
+    heap: list[tuple[float, str]] = [(0.0, s) for s in sorted(sources)]
+    heapq.heapify(heap)
+
+    while heap:
+        distance, uat = heapq.heappop(heap)
+        if distance > best.get(uat, math.inf):
+            continue
+        for neighbour in data.neighbours.get(uat, ()):
+            if data.county[neighbour] != county:
+                continue
+            step = data.road_distance.get((uat, neighbour), _distance(data, uat, neighbour))
+            candidate = distance + step
+            if candidate < best.get(neighbour, math.inf):
+                best[neighbour] = candidate
+                heapq.heappush(heap, (candidate, neighbour))
+    return best
+
+
 def _tier_radius(params: Params, tier: int) -> int:
     return params.r_cap_m if tier == TIER_COUNTY_CAPITAL else params.r_town_m
 
@@ -247,11 +277,17 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         r_sep = float(params.r_sep_m)
 
         while len(seeds_here) < params.n_min:
+            # Recomputed whenever the seed set changes: separation is measured from the
+            # nearest existing centre by road, not in a straight line.
+            separation = _county_road_distances(data, county_code, seeds_here) if seeds_here else {}
+
             best: tuple[int, int, str] | None = None
             best_siruta = None
             for candidate in pool:
                 if seeds_here and r_sep > 0:
-                    nearest = min(_distance(data, candidate, s) for s in seeds_here)
+                    # Unreachable by road inside the county counts as far away, not as
+                    # zero: an isolated candidate is a good centre, not a disqualified one.
+                    nearest = separation.get(candidate, math.inf)
                     if nearest < r_sep:
                         continue
                 gain = sum(

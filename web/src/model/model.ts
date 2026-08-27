@@ -36,11 +36,50 @@ function sliceFor(data: ModelData, params: Params, tier: number): RadiusSlice | 
   return data.byRadius.get(tierRadius(params, tier));
 }
 
-/** Squared distance between two seats. Squared, because only comparisons are ever needed. */
-function seatDistanceSq(data: ModelData, a: number, b: number): number {
-  const dx = data.seatX[a]! - data.seatX[b]!;
-  const dy = data.seatY[a]! - data.seatY[b]!;
-  return dx * dx + dy * dy;
+/**
+ * Road distance from the nearest of `sources` to every UAT in one county.
+ *
+ * Separation between centres is a road distance like everything else here, and centres are
+ * rarely adjacent, so it cannot be read from the per-edge table directly. This walks the
+ * UAT graph inside the county using those per-edge distances as weights — the same numbers,
+ * and the same notion of distance, that accretion uses.
+ *
+ * Confined to the county because a region may never cross a county line, so a route that
+ * leaves and comes back is not one this model would ever travel.
+ */
+function countyRoadDistances(
+  data: ModelData,
+  county: number,
+  sources: number[],
+): Map<number, number> {
+  const best = new Map<number, number>();
+  // A plain array used as a queue with a linear scan for the minimum. Counties hold a few
+  // dozen UATs, where that beats the bookkeeping of a heap.
+  const frontier: number[] = [];
+  for (const s of [...sources].sort((a, b) => a - b)) {
+    best.set(s, 0);
+    frontier.push(s);
+  }
+
+  while (frontier.length > 0) {
+    let pick = 0;
+    for (let i = 1; i < frontier.length; i += 1) {
+      if (best.get(frontier[i]!)! < best.get(frontier[pick]!)!) pick = i;
+    }
+    const uat = frontier.splice(pick, 1)[0]!;
+    const distance = best.get(uat)!;
+
+    for (let e = data.neighbourStart[uat]!; e < data.neighbourStart[uat + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (data.countyOf[nb] !== county) continue;
+      const candidate = distance + data.neighbourRoadM[e]!;
+      if (candidate < (best.get(nb) ?? Infinity)) {
+        best.set(nb, candidate);
+        frontier.push(nb);
+      }
+    }
+  }
+  return best;
 }
 
 /**
@@ -119,21 +158,20 @@ function selectSeeds(data: ModelData, params: Params): {
     let rSep = params.rSepM;
 
     while (seedsHere.length < params.nMin) {
+      // Recomputed whenever the seed set changes: separation is measured from the nearest
+      // existing centre by road, not in a straight line.
+      const separation =
+        seedsHere.length > 0 ? countyRoadDistances(data, county, seedsHere) : null;
+
       let bestIndex = -1;
       let bestGain = -1;
       let bestPop = -1;
 
       for (const candidate of pool) {
-        if (seedsHere.length > 0 && rSep > 0) {
-          const limitSq = rSep * rSep;
-          let tooClose = false;
-          for (const seed of seedsHere) {
-            if (seatDistanceSq(data, candidate, seed) < limitSq) {
-              tooClose = true;
-              break;
-            }
-          }
-          if (tooClose) continue;
+        if (separation && rSep > 0) {
+          // Unreachable by road inside the county counts as far away, not as zero: an
+          // isolated candidate is a good centre, not a disqualified one.
+          if ((separation.get(candidate) ?? Infinity) < rSep) continue;
         }
 
         let gain = 0;
