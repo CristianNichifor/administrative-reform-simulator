@@ -589,16 +589,23 @@ def orphan_tier(data: Data, params: Params, result: Result) -> None:
 
 
 def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
-    """Merge resulting units that are still below the target population.
+    """Merge resulting units still below the target population, into their nearest by road.
 
     The gravitational rules answer "who can reach whom". This answers a different question:
     "is the result large enough to be worth creating". A unit of 4,000 people still needs a
-    mayor, a secretary and a budget, so a scenario can leave you with a smaller map that has
-    not actually fixed anything.
+    mayor, a secretary and a budget, so a scenario can otherwise leave a smaller map that
+    has not actually fixed anything.
 
-    A unit below the target absorbs the smallest neighbouring unit it can, repeatedly, until
-    it reaches the target or runs out of neighbours **in its own county**. The larger of the
-    two keeps its seat, because that is the administration more likely to have the capacity.
+    **The partner is the nearest by road, not the smallest.** Choosing the smallest combined
+    population — which is right in the orphan tier, where the candidates are tiny
+    neighbours — is badly wrong applied to whole units: small units chain into whatever
+    happens to be adjacent until something clears the target. In Tulcea that put Măcin into
+    Babadag 60 km away at the other end of the county, and collapsed 19 sensible units into
+    three. Distance is what everything else in this model uses, and it is what a resident
+    would ask about first.
+
+    A unit already at the target is used as a partner only when nothing below it is
+    adjacent, so satisfied units are not inflated further by their neighbours merging in.
 
     Units can end below the target legitimately: an isolated commune whose every neighbour
     is already large has nowhere to go. They are reported rather than forced.
@@ -622,28 +629,38 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             if region_population(absorber) >= params.p_target:
                 continue
 
-            # Neighbouring units reachable from any member, in the same county.
+            county = data.county[absorber]
             partners: set[str] = set()
             for member in result.members[absorber]:
                 for neighbour in data.neighbours.get(member, ()):
                     other = result.region_of[neighbour]
-                    if other == absorber:
-                        continue
-                    if data.county[neighbour] != data.county[member]:
+                    if other == absorber or data.county[neighbour] != county:
                         continue
                     partners.add(other)
-
             if not partners:
                 continue
 
-            # Smallest first, so a small unit pairs with another small one rather than
-            # being swallowed by the nearest city.
-            partner = min(partners, key=lambda o: (region_population(o), o))
+            # Road distance from this unit's seat to each neighbouring unit's seat.
+            distances = _county_road_distances(data, county, [absorber])
+            still_small = [o for o in partners if region_population(o) < params.p_target]
+            choices = still_small or sorted(partners)
+            partner = min(
+                choices,
+                key=lambda o: (distances.get(o, math.inf), region_population(o), o),
+            )
 
-            a_pop, b_pop = region_population(absorber), region_population(partner)
+            # Which seat survives is about the standing of the town, not the size the unit
+            # happens to have reached: a county capital outranks anything, then a centre
+            # outranks a cluster seat, then the larger town wins. Judging by unit population
+            # made Măcin (7,248) the capital of a unit containing Babadag (9,213), purely
+            # because Măcin's side had gathered more communes by that point.
+            def standing(unit: str) -> tuple[int, int, str]:
+                tier = result.seeds.get(unit, TIER_PROMOTED + 1)
+                return (tier, -data.population[unit], unit)
+
             keep, drop = (
                 (absorber, partner)
-                if (a_pop, absorber) >= (b_pop, partner)
+                if standing(absorber) <= standing(partner)
                 else (partner, absorber)
             )
 

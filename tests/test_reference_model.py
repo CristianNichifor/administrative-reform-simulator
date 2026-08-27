@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 182
+SNAPSHOT_DEFAULT_REGIONS = 183
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -142,6 +142,54 @@ class TestHeldAbsorbers:
         members = [m for region in result.members.values() for m in region]
         assert len(members) == len(set(members)) == len(data.population)
         assert summary["regions"] == len(result.members)
+
+
+class TestConsolidationIsLocal:
+    """Merging to reach the target must not drag a unit across the county."""
+
+    @pytest.mark.parametrize("target", [25_000, 50_000])
+    def test_no_member_outranks_its_own_seat(self, data, target: int) -> None:
+        """A unit's seat should be the most significant town in it.
+
+        The regression: choosing the surviving seat by which side had gathered more
+        communes made Măcin (7,248) the capital of a unit containing Babadag (9,213). Seats
+        are now decided by standing — county capital, then centre, then the larger town.
+        """
+        result, _ = run(data, Params(p_target=target))
+        for seat, members in result.members.items():
+            seat_tier = result.seeds.get(seat, 99)
+            for member in members:
+                if member == seat:
+                    continue
+                member_tier = result.seeds.get(member, 99)
+                assert member_tier >= seat_tier, f"{member} outranks its seat {seat}"
+                if member_tier == seat_tier:
+                    assert data.population[member] <= data.population[seat]
+
+    def test_merged_partner_is_the_nearest_by_road(self, data) -> None:
+        """Units should not span a county because of a chain of smallest-first merges.
+
+        Tulcea is the case this exists for: choosing the smallest combined population put
+        Măcin into Babadag 60 km away and collapsed 19 units into three.
+        """
+        result, _ = run(data, Params(p_target=50_000))
+        for seat, members in result.members.items():
+            if len(members) < 2:
+                continue
+            county = data.county[seat]
+            assert all(data.county[m] == county for m in members)
+            # Every member must be reachable from the seat without leaving the unit, which
+            # a cross-county chain of convenience mergers would break.
+            wanted = set(members)
+            seen = {seat}
+            stack = [seat]
+            while stack:
+                current = stack.pop()
+                for neighbour in data.neighbours.get(current, ()):
+                    if neighbour in wanted and neighbour not in seen:
+                        seen.add(neighbour)
+                        stack.append(neighbour)
+            assert seen == wanted, f"unit {seat} is not connected"
 
 
 class TestBucharest:

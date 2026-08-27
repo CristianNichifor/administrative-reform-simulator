@@ -554,6 +554,7 @@ function consolidateToTarget(
   regionOf: Uint16Array,
   orphanSeats: Set<number>,
   reasonOf: Uint8Array,
+  tierOf: Int8Array,
 ): number {
   const members = new Map<number, number[]>();
   for (let i = 0; i < data.uatCount; i += 1) {
@@ -599,21 +600,39 @@ function consolidateToTarget(
         }
         if (partners.size === 0) continue;
 
-        // Smallest first, so a small unit pairs with another small one rather than being
-        // swallowed by the nearest city.
-        let partner = -1;
-        for (const candidate of [...partners].sort((a, b) => a - b)) {
-          if (
-            partner === -1 ||
-            populationOf(candidate) < populationOf(partner)
-          ) {
+        // Nearest by road, not smallest. Choosing the smallest combined population — right
+        // in the orphan tier, where candidates are tiny neighbours — is badly wrong for
+        // whole units: they chain into whatever is adjacent until something clears the
+        // target. In Tulcea that put Măcin into Babadag 60 km away and collapsed 19 units
+        // into three. A unit already at the target is used only when nothing smaller is
+        // adjacent, so satisfied units are not inflated by their neighbours merging in.
+        const county = data.countyOf[region]!;
+        const distances = countyRoadDistances(data, county, [region]);
+        const stillSmall = [...partners].filter((o) => populationOf(o) < params.pTarget);
+        const choices = (stillSmall.length > 0 ? stillSmall : [...partners]).sort((a, b) => a - b);
+        let partner = choices[0]!;
+        for (const candidate of choices) {
+          const dc = distances.get(candidate) ?? Infinity;
+          const dp = distances.get(partner) ?? Infinity;
+          if (dc < dp || (dc === dp && populationOf(candidate) < populationOf(partner))) {
             partner = candidate;
           }
         }
 
-        const aPop = populationOf(region);
-        const bPop = populationOf(partner);
-        const keep = aPop > bPop || (aPop === bPop && region > partner) ? region : partner;
+        // Which seat survives is about the standing of the town, not the size its unit
+        // happens to have reached: county capital outranks a centre, a centre outranks a
+        // cluster seat, then the larger town wins. Judging by unit population made Măcin
+        // (7,248) the capital of a unit containing Babadag (9,213).
+        const standing = (unit: number): [number, number, number] => [
+          tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
+          -data.population[unit]!,
+          unit,
+        ];
+        const sa = standing(region);
+        const sb = standing(partner);
+        const regionWins =
+          sa[0] !== sb[0] ? sa[0] < sb[0] : sa[1] !== sb[1] ? sa[1] < sb[1] : sa[2] <= sb[2];
+        const keep = regionWins ? region : partner;
         const drop = keep === region ? partner : region;
 
         const moved = members.get(drop)!;
@@ -666,7 +685,7 @@ export function runModel(data: ModelData, params: Params): ModelResult {
     if (regionOf[i] === NO_REGION) unassigned += 1;
   }
 
-  const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf);
+  const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
 
   const regionSeats = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) regionSeats.add(regionOf[i]!);
