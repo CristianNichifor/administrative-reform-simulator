@@ -401,6 +401,21 @@ def main(argv: list[str] | None = None) -> int:
     # without a road between them, and if the colouring cannot see that they touch it gives
     # them the same colour and they read as one shape. Sulina, Crisan and Chilia Veche were
     # three separate units drawn in one block of orange for exactly this reason.
+    # Same rule as the reference model: a border the model may grow over is one you can
+    # drive across, which is not the same as one a road crosses. See reference_model.
+    routed_pairs = {
+        (a, b)
+        for a, b, metres in zip(road["a_siruta"], road["b_siruta"], road["road_m"], strict=True)
+        if math.isfinite(metres)
+    }
+    adjacency = adjacency.copy()
+    adjacency["traversable"] = adjacency["traversable"].to_numpy() | np.array(
+        [
+            (a, b) in routed_pairs
+            for a, b in zip(adjacency["a_siruta"], adjacency["b_siruta"], strict=True)
+        ]
+    )
+
     ordered = adjacency.sort_values(["traversable"], ascending=False, kind="stable")
     a_idx = np.array([index_of[s] for s in ordered["a_siruta"]], dtype=np.uint16)
     b_idx = np.array([index_of[s] for s in ordered["b_siruta"]], dtype=np.uint16)

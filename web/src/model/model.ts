@@ -849,8 +849,22 @@ function consolidateToTarget(
         const reachable = [...partners].filter(compact);
         if (reachable.length === 0) continue;
 
+        // A county capital is finished once it has taken its ring.
+        //
+        // This is the answer to "why is the resedinta de judet absorbing far more than its
+        // neighbours". Its own growth stops at the ring bordering it; what reached 49.6 km
+        // was this step. Oras Recas (8,347) and Oras Buzias (6,834) grow but never reach
+        // 50,000, they merge with the small units beside them and are still short, and that
+        // chain keeps merging outward until it meets the only adjacent unit clearing the
+        // target — the capital. So the whole chain drained into it.
+        //
+        // Only capitals are closed off. Refusing every satisfied unit also works and strands
+        // the leftovers instead: widening the radius then produced more units rather than
+        // fewer, and a slider labelled "how far a centre reaches" must not do that.
         const stillSmall = reachable.filter((o) => populationOf(o) < params.pTarget);
-        const choices = (stillSmall.length > 0 ? stillSmall : reachable).sort((a, b) => a - b);
+        const notACapital = reachable.filter((o) => !data.attributes.isCapital[o]);
+        const choices = (stillSmall.length > 0 ? stillSmall : notACapital).sort((a, b) => a - b);
+        if (choices.length === 0) continue;
         let partner = choices[0]!;
         for (const candidate of choices) {
           const dc = distances.get(candidate) ?? Infinity;
@@ -1062,9 +1076,18 @@ export function mergeBlocker(
   params: Params,
   regionOf: Uint16Array,
   seat: number,
-): { kind: 'no-county-neighbour' } | { kind: 'cap'; metres: number } | null {
-  const members: number[] = [];
-  for (let i = 0; i < data.uatCount; i += 1) if (regionOf[i] === seat) members.push(i);
+):
+  | { kind: 'no-county-neighbour' }
+  | { kind: 'capital-only' }
+  | { kind: 'cap'; metres: number }
+  | null {
+  const unitSeat = seat;
+  const membersOf = (unit: number): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < data.uatCount; i += 1) if (regionOf[i] === unit) out.push(i);
+    return out;
+  };
+  const members = membersOf(seat);
 
   // Units this one touches, that it would be allowed to join.
   const partners = new Set<number>();
@@ -1075,16 +1098,37 @@ export function mergeBlocker(
     }
   }
   if (partners.size === 0) return { kind: 'no-county-neighbour' };
+  // A capital is finished once it has taken its ring, so it is not a partner. A unit whose
+  // only neighbours are capitals has nowhere to go regardless of distance.
+  if ([...partners].every((p) => data.attributes.isCapital[p])) return { kind: 'capital-only' };
   if (params.maxRoadM <= 0) return null;
 
   // The cheapest merge available, measured the way consolidation measures it: every member
   // of the combined unit within the cap of whichever seat would survive.
+  // Measured from the seat that would survive the merge, exactly as consolidation does.
+  // Measuring from the partner instead reported merges as possible that the model refuses:
+  // Lumina and Mihail Kogalniceanu are both under the target and adjacent, but the cap is
+  // judged from Lumina, which keeps the seat, not from Mihail Kogalniceanu.
+  const standing = (unit: number): [number, number, number] => [
+    data.attributes.adminRank[unit]!,
+    -data.population[unit]!,
+    unit,
+  ];
+  const survives = (a: number, b: number): number => {
+    const sa = standing(a);
+    const sb = standing(b);
+    for (let k = 0; k < 3; k += 1) if (sa[k] !== sb[k]) return sa[k]! < sb[k]! ? a : b;
+    return a;
+  };
+
   let best = Infinity;
   for (const partner of partners) {
-    const county = data.countyOf[partner]!;
-    const reach = countyRoadDistances(data, county, [partner]);
+    if (data.attributes.isCapital[partner]) continue;
+    const seat = survives(unitSeat, partner);
+    const county = data.countyOf[seat]!;
+    const reach = countyRoadDistances(data, county, [seat]);
     let worst = 0;
-    for (const member of [...members, partner]) {
+    for (const member of [...members, ...membersOf(partner)]) {
       if (data.countyOf[member] !== county) continue;
       worst = Math.max(worst, reach.get(member) ?? Infinity);
     }

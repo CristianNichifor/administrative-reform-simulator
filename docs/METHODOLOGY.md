@@ -102,6 +102,20 @@ looks indefensible on a map and would be the first thing an opponent screenshott
 
 **Step 3 — absorption, by road distance, in three passes.**
 
+*A county capital is also finished once it has taken that ring.* It is never a partner in
+the merging step below. This is the whole answer to "why is the county capital absorbing far
+more than its neighbours": its own growth always stopped at the ring, and what reached 49.6 km
+was the merging step. Oraș Recaș (8,347) and Oraș Buziaș (6,834) grow but never reach 50,000,
+so they merge with the small units beside them and are still short, and that chain keeps
+merging outward until it meets the only adjacent unit that clears the target — the capital. So
+the whole chain drained into it.
+
+Only capitals are closed off. Refusing *every* satisfied unit as a partner also works, and it
+strands the leftovers instead: widening the radius then produced more units rather than fewer,
+because a wider radius satisfies more units and each one it satisfies stops accepting
+neighbours. A slider labelled "how far a centre reaches" must not increase the number of units
+when you turn it up.
+
 *A county capital takes the ring that borders it, and nothing beyond.* Not a radius: the
 radius does not mean what its name suggests. Candidacy is measured as area overlap against a
 buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
@@ -314,6 +328,25 @@ together with the national roads at country zoom they are a smear rather than in
 Of the 9,281 adjacent seat pairs, 195 have no road route at all and fall back to straight-line
 distance; most are Vrancea and Delta communes where the road genuinely does not connect. The
 median route is 1.38 times the straight line, the 99th percentile 4.3 times.
+
+**A border you can drive across, not a border a road crosses.** The model used to ask
+whether a road crossed each shared boundary, and that is the wrong question. Oraș Făurei and
+Surdila-Găiseanca share 2,252 m of border that no road crosses at any tolerance — and their
+seats are 5.4 km apart by road, because the route goes round. Under that rule Făurei was
+forbidden from absorbing its own neighbour, which then drained to Ianca through a chain of
+merges. Nationally 3,213 borders were blocked while a real driving route existed, 234 of them
+shorter than 10 km.
+
+A border now counts if you can drive between the two seats at all, and the routed distance is
+the weight. That needs no threshold: a border that is a long way round carries a large weight,
+so growth avoids it and the distance cap bounds it. A river with no bridge and a motorway with
+no junction are both long detours, which is exactly what they are — the protection those cases
+need is the distance, not a yes/no test. 9,125 of 9,281 borders are now passable; the 156 that
+are not have no road route between their seats at all.
+
+This also removed the last two permanently stranded communes. Pietroșani and Nămoloasa each
+had exactly one road-connected neighbour, in a different county, so no setting of any slider
+could ever merge them. Both now have neighbours in their own county.
 
 **Roads decide two different things.** Whether a border may be crossed at all is a yes/no
 test: a road counts if it passes near the shared border *and* enters both communes, so a

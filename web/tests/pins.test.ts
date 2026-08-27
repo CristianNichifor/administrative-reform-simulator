@@ -146,18 +146,19 @@ describe('what a pin is allowed to break', () => {
 
   it('reports a unit left in two pieces rather than refusing the pin', () => {
     const base = runModel(data, DEFAULT_PARAMS);
-    const bucharest = base.regionOf[find('SECTORUL 1', 'B')]!;
 
     // Find a commune whose removal disconnects its own unit: one that every path between
     // two other members has to pass through.
     let culprit = -1;
+    let culpritSeat = -1;
     for (let i = 0; i < data.uatCount && culprit === -1; i += 1) {
       const seat = base.regionOf[i]!;
-      if (seat === i || seat !== bucharest) continue;
+      if (seat === i) continue;
       const rest = [];
       for (let k = 0; k < data.uatCount; k += 1) {
-        if (base.regionOf[k] === bucharest && k !== i) rest.push(k);
+        if (base.regionOf[k] === seat && k !== i) rest.push(k);
       }
+      if (rest.length < 2) continue;
       const inUnit = new Set(rest);
       const seen = new Set([rest[0]!]);
       const stack = [rest[0]!];
@@ -168,21 +169,30 @@ describe('what a pin is allowed to break', () => {
           if (inUnit.has(nb) && !seen.has(nb)) { seen.add(nb); stack.push(nb); }
         }
       }
-      if (seen.size !== inUnit.size) culprit = i;
+      if (seen.size !== inUnit.size) {
+        culprit = i;
+        culpritSeat = seat;
+      }
     }
 
-    // Afumati is the one under the current data. If the map ever changes so that no member
-    // of this unit is a cut vertex, this test can no longer test anything — fail rather than
-    // pass quietly, so it gets rewritten instead of rotting into a green tick.
+    // Searched across every unit rather than pinned to one: Afumati was the example under the
+    // old connectivity rule and stopped being a cut vertex once borders with no road across
+    // them became passable. If no unit anywhere has one, this test cannot test anything —
+    // fail rather than pass quietly, so it gets rewritten instead of rotting into a tick.
     if (culprit === -1) {
-      throw new Error('no cut vertex in the Bucharest unit: this test proves nothing as written');
+      throw new Error('no cut vertex in any unit: this test proves nothing as written');
     }
 
-    // Pin it somewhere else in the same county, which must split the unit it left.
-    const elsewhere = base.regionOf[find('SNAGOV', 'IF')]!;
+    // Pin it into any other unit it may legally join, which must split the unit it left.
+    let elsewhere = -1;
+    for (let e = data.neighbourStart[culprit]!; e < data.neighbourStart[culprit + 1]!; e += 1) {
+      const other = base.regionOf[data.neighbours[e]!]!;
+      if (other !== culpritSeat) { elsewhere = other; break; }
+    }
+    expect(elsewhere).toBeGreaterThanOrEqual(0);
     const result = runModel(data, DEFAULT_PARAMS, [{ uat: culprit, seat: elsewhere }]);
     expect(result.pinsApplied).toHaveLength(1);
-    expect(result.splitUnits).toContain(bucharest);
+    expect(result.splitUnits).toContain(culpritSeat);
   });
 
   it('finds no split unit when nothing is pinned', () => {
@@ -217,11 +227,22 @@ describe('why a unit could not merge', () => {
     expect(singles.length).toBeGreaterThan(0);
 
     // Every single-UAT unit has a reason, and it is one of exactly two.
-    const byKind = { 'no-county-neighbour': [] as string[], cap: [] as string[] };
+    const byKind: Record<string, string[]> = {
+      'no-county-neighbour': [],
+      'capital-only': [],
+      cap: [],
+    };
     for (const seat of singles) {
+      // A unit already at the target never tried to merge, so there is nothing to explain:
+      // Municipiul Barlad is one commune of about 54,000 and simply does not need a partner.
+      let pop = 0;
+      for (let i = 0; i < data.uatCount; i += 1) {
+        if (result.regionOf[i] === seat) pop += data.population[i]!;
+      }
+      if (pop >= DEFAULT_PARAMS.pTarget) continue;
       const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat);
       expect(blocker, `${data.attributes.name[seat]} is alone for no stated reason`).not.toBeNull();
-      byKind[blocker!.kind].push(data.attributes.name[seat]!);
+      byKind[blocker!.kind]!.push(data.attributes.name[seat]!);
       if (blocker!.kind === 'cap') {
         // A cap answer has to be actionable: past the cap, and a real distance.
         expect(blocker!.metres).toBeGreaterThan(DEFAULT_PARAMS.maxRoadM);
@@ -232,8 +253,15 @@ describe('why a unit could not merge', () => {
     // Pietrosani's only road neighbour is in Giurgiu and Namoloasa's is in Vrancea, so no
     // cap setting can ever reach them. That is a consequence of the county rule, not a bug,
     // and it is the one thing in this list a slider cannot fix.
-    expect(byKind['no-county-neighbour'].sort()).toEqual(['NĂMOLOASA', 'PIETROȘANI']);
-    expect(byKind.cap.length).toBeGreaterThan(0);
+    // No names are pinned here on purpose. Which communes end up alone moves with the rules,
+    // and it moved a lot: Pietrosani and Namoloasa were permanently stranded under the old
+    // border test, because it asked whether a road crossed their one shared border rather
+    // than whether you could drive to a neighbour at all. Both now have same-county
+    // neighbours and neither is alone. What has to hold is the property — every unit left
+    // alone and short of the target has a stated reason, and at least one reason is in play,
+    // or this test is checking an empty list.
+    const total = Object.values(byKind).reduce((n, list) => n + list.length, 0);
+    expect(total).toBeGreaterThan(0);
   });
 
   it('never blames the cap when the cap is switched off', () => {
@@ -281,11 +309,13 @@ describe('why a unit could not merge', () => {
     expect(blocker?.kind).toBe('cap');
     const needed = (blocker as { metres: number }).metres;
 
-    // The number it reports is the answer to "what would I have to set the cap to", so at
-    // that cap the unit must no longer be alone.
-    const raised = runModel(data, { ...DEFAULT_PARAMS, maxRoadM: Math.ceil(needed) + 1000 });
-    let members = 0;
-    for (let i = 0; i < data.uatCount; i += 1) if (raised.regionOf[i] === raised.regionOf[chilia]!) members += 1;
-    expect(members).toBeGreaterThan(1);
+    // The number it reports is the answer to "what would I have to set the cap to", so above
+    // that cap the distance must stop being the reason. Whether the unit then actually merges
+    // depends on the rest of consolidation — a capital neighbour still refuses — so the claim
+    // under test is about the cap, not about the outcome.
+    const raisedParams = { ...DEFAULT_PARAMS, maxRoadM: Math.ceil(needed) + 1000 };
+    const raised = runModel(data, raisedParams);
+    const after = mergeBlocker(data, raisedParams, raised.regionOf, raised.regionOf[chilia]!);
+    expect(after?.kind).not.toBe('cap');
   });
 });

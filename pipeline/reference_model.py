@@ -36,6 +36,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from pipeline.constants import (
@@ -174,9 +175,30 @@ def load_data() -> Data:
         zip(finance["siruta"], finance["administrative_ron"].astype(float), strict=True)
     )
 
-    # Only traversable edges exist as far as the model is concerned: a road crossing, or
-    # the local fallback for a UAT that has no road-connected neighbour at all.
-    usable = adjacency[adjacency["traversable"]]
+    # A border the model may grow over is one you can actually drive across — not one a road
+    # happens to cross.
+    #
+    # `traversable` is a fact about geometry: does a road cross this shared border. That is
+    # the wrong question. Oras Faurei and Surdila-Gaiseanca share 2,252 m of border that no
+    # road crosses at any tolerance, and their seats are 5.4 km apart by road because the
+    # route goes round. Faurei was forbidden from absorbing its own neighbour, which then
+    # drained to Ianca through a chain. Nationally 3,213 borders were blocked while a real
+    # route existed, 234 of them under 10 km.
+    #
+    # The routed distance answers it properly and needs no threshold: a border that is a long
+    # way round carries a large weight, so growth avoids it and the distance cap bounds it. A
+    # river with no bridge and a motorway with no junction are both long detours, which is
+    # what they are — the protection those cases need is the distance, not a yes/no test.
+    routed_pairs = {
+        (a, b)
+        for a, b, metres in zip(road["a_siruta"], road["b_siruta"], road["road_m"], strict=True)
+        if math.isfinite(metres)
+    }
+    has_route = [
+        (a, b) in routed_pairs
+        for a, b in zip(adjacency["a_siruta"], adjacency["b_siruta"], strict=True)
+    ]
+    usable = adjacency[adjacency["traversable"].to_numpy() | np.array(has_route)]
     adjacent: dict[str, set[str]] = defaultdict(set)
     for a, b in zip(usable["a_siruta"], usable["b_siruta"], strict=True):
         adjacent[a].add(b)
@@ -846,8 +868,9 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
     three. Distance is what everything else in this model uses, and it is what a resident
     would ask about first.
 
-    A unit already at the target is used as a partner only when nothing below it is
-    adjacent, so satisfied units are not inflated further by their neighbours merging in.
+    A unit that has reached the target is never a partner. Satisfied units are finished, and
+    a short neighbour with nowhere to go stays short and is reported rather than being poured
+    into whatever large unit happens to be nearest.
 
     Units can end below the target legitimately: an isolated commune whose every neighbour
     is already large has nowhere to go. They are reported rather than forced.
@@ -932,8 +955,40 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             if not reachable:
                 continue
 
+            # A unit that has reached the target never takes more.
+            #
+            # This is the whole answer to "why is the county capital absorbing far more than
+            # its neighbours". It was not: its own growth stops at the ring that borders it.
+            # What reached 49.6 km was this step. Oras Recas (8,347) and Oras Buzias (6,834)
+            # grow but never reach 50,000; they merge with the small units beside them and
+            # are still short; that chain keeps merging outward, and the only adjacent unit
+            # that clears 50,000 is Timisoara. So the whole chain drained into the capital,
+            # every link legal because it stayed inside the cap measured from Timisoara.
+            #
+            # Falling back to a satisfied partner is what opened that door. Without it a unit
+            # that cannot reach the target stays short and is reported, which is the honest
+            # outcome: it costs about 118 units and 0.44 bn RON nationally, and it is the
+            # difference between a capital that takes its neighbours and one that takes half
+            # the county.
+            # A county capital is finished once it has taken its ring.
+            #
+            # This is the answer to "why is the resedinta de judet absorbing far more than
+            # its neighbours". Its own growth stops at the ring bordering it; what reached
+            # 49.6 km was this step. Oras Recas (8,347) and Oras Buzias (6,834) grow but
+            # never reach 50,000, they merge with the small units beside them and are still
+            # short, and that chain keeps merging outward until it meets the only adjacent
+            # unit that clears the target — the capital. So the whole chain drained into it.
+            #
+            # Only capitals are closed off. Refusing *every* satisfied unit as a partner also
+            # works, and it strands the leftovers instead: widening the radius then produced
+            # more units rather than fewer, because a wider radius satisfies more units and
+            # each one it satisfies stops accepting neighbours. A slider labelled "how far a
+            # centre reaches" must not increase the number of units when you turn it up.
             still_small = [o for o in reachable if region_population(o) < params.p_target]
-            choices = still_small or reachable
+            not_a_capital = [o for o in reachable if o not in COUNTY_CAPITAL_SIRUTA]
+            choices = still_small or not_a_capital
+            if not choices:
+                continue
             partner = min(
                 choices,
                 key=lambda o: (here.get(o, math.inf), region_population(o), o),

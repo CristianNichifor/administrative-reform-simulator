@@ -755,9 +755,11 @@ async function boot(): Promise<void> {
         note.textContent =
           blocker.kind === 'no-county-neighbour'
             ? strings.auditWhyCounty
-            : strings.auditWhyCap
-                .replace('{km}', (blocker.metres / 1000).toFixed(1))
-                .replace('{cap}', String(Math.round(scenario.params.maxRoadM / 1000)));
+            : blocker.kind === 'capital-only'
+              ? strings.auditWhyCapitalOnly
+              : strings.auditWhyCap
+                  .replace('{km}', (blocker.metres / 1000).toFixed(1))
+                  .replace('{cap}', String(Math.round(scenario.params.maxRoadM / 1000)));
       }
       return;
     }

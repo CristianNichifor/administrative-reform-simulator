@@ -41,7 +41,7 @@ export type Incoming = InitMessage | ComputeMessage | ExplainMessage;
 
 export interface ExplainResultMessage {
   type: 'explain-result';
-  blockers: { seat: number; kind: 'no-county-neighbour' | 'cap'; metres: number }[];
+  blockers: { seat: number; kind: 'no-county-neighbour' | 'capital-only' | 'cap'; metres: number }[];
 }
 
 export interface ReadyMessage {

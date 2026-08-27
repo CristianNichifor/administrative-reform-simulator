@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 269
+SNAPSHOT_DEFAULT_REGIONS = 291
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -271,16 +271,25 @@ class TestMinimumTargetPopulation:
         assert summary["params"].p_target == 50_000
 
     def test_raising_the_target_never_increases_regions(self, data) -> None:
-        counts = [run(data, Params(p_target=t))[1]["regions"] for t in (0, 10_000, 50_000)]
-        assert counts == sorted(counts, reverse=True)
+        # Positive targets only. Zero does not mean "a very low target", it means the step is
+        # off — and it switches off two things at once, the growth stop as well as the
+        # merging. With no growth stop the smaller centres run on and produce *fewer*, larger
+        # units than a 10,000 target does, so comparing "off" against "on" is comparing two
+        # modes rather than two values.
+        counts = [run(data, Params(p_target=t))[1]["regions"] for t in (10_000, 50_000, 100_000)]
+        assert counts == sorted(counts, reverse=True), counts
 
     def test_units_below_target_are_blocked_by_distance_or_isolation(self, data) -> None:
         """A unit may finish under the target, but only for a reason.
 
-        Either it has no same-county neighbour at all, or merging with every one of them
-        would put some commune beyond the distance cap. Anything else means the
-        consolidation loop stopped early and left a unit smaller than it needed to be.
+        Three reasons are legitimate: it has no same-county neighbour at all, merging with
+        every one of them would put some commune beyond the distance cap, or every neighbour
+        that could take it is a county capital — and a capital is finished once it has taken
+        the ring that borders it. Anything else means the consolidation loop stopped early
+        and left a unit smaller than it needed to be.
         """
+        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
+
         params = Params(p_target=50_000)
         result, _ = run(data, params)
 
@@ -309,6 +318,10 @@ class TestMinimumTargetPopulation:
                 keeps = absorber if standing(absorber) <= standing(other) else other
                 reach = _county_road_distances(data, data.county[keeps], [keeps])
                 everyone = result.members[absorber] + result.members[other]
+                if other in COUNTY_CAPITAL_SIRUTA:
+                    # A capital takes its ring and stops. This is the whole reason the
+                    # capitals were not swallowing half their counties.
+                    continue
                 assert any(reach.get(m, math.inf) > params.max_road_m for m in everyone), (
                     f"{absorber} could still have merged with {other}"
                 )
