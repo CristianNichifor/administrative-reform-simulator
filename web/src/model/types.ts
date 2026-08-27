@@ -136,6 +136,13 @@ export interface ModelData {
   /** Road distance in metres to each neighbour, aligned with `neighbours`. */
   neighbourRoadM: Float32Array;
   neighbourStart: Uint32Array;
+  /**
+   * Every shared border, including those no road crosses. Colouring only.
+   *
+   * The model must not use this: a border with no road is not one a unit may grow over.
+   */
+  touching: Uint16Array;
+  touchStart: Uint32Array;
   /** Radius (metres) to its candidacy slice. */
   byRadius: Map<number, RadiusSlice>;
   /** Indices that appear as an absorber at any radius, ascending. */

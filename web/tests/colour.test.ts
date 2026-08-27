@@ -11,7 +11,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { assignUnitColours, COOL_PALETTE, PALETTE, WARM_PALETTE } from '../src/model/colour';
+import { assignUnitColours, CLUSTER_PALETTE, PALETTE, UNIT_PALETTE } from '../src/model/colour';
 import { decode } from '../src/model/load';
 import { runModel } from '../src/model/model';
 import { DEFAULT_PARAMS, type ModelData, type Params } from '../src/model/types';
@@ -48,13 +48,20 @@ function colourFor(params: Params) {
   return { result, colourOf: assignUnitColours(data, result.regionOf, isOrphanUnit) };
 }
 
-/** Every pair of units that touch, following commune borders across county lines too. */
+/**
+ * Every pair of units that touch, following commune borders across county lines too.
+ *
+ * Walks the *touching* graph, not the model's. This test used to walk `neighbours`, which
+ * holds only borders a road crosses — the same graph the colouring itself was using — so it
+ * passed while Sulina, Crisan and Chilia Veche were drawn as one block of orange. A test
+ * that shares its subject's blind spot cannot see the bug.
+ */
 function touchingUnits(regionOf: Uint16Array): [number, number][] {
   const pairs = new Set<string>();
   for (let i = 0; i < data.uatCount; i += 1) {
     const a = regionOf[i]!;
-    for (let e = data.neighbourStart[i]!; e < data.neighbourStart[i + 1]!; e += 1) {
-      const b = regionOf[data.neighbours[e]!]!;
+    for (let e = data.touchStart[i]!; e < data.touchStart[i + 1]!; e += 1) {
+      const b = regionOf[data.touching[e]!]!;
       if (a !== b) pairs.add(a < b ? `${a}:${b}` : `${b}:${a}`);
     }
   }
@@ -104,7 +111,7 @@ describe('unit colouring', () => {
 
   it('clusters keep the warm family unless a neighbour forces otherwise', () => {
     const { result, colourOf } = colourFor(DEFAULT_PARAMS);
-    const warmStart = COOL_PALETTE.length;
+    const warmStart = UNIT_PALETTE.length;
     let clusters = 0;
     let warm = 0;
     for (let i = 0; i < data.uatCount; i += 1) {
@@ -128,6 +135,75 @@ describe('unit colouring', () => {
   it('uses only palette entries that exist', () => {
     const { colourOf } = colourFor(DEFAULT_PARAMS);
     for (const c of colourOf) expect(PALETTE[c]).toBeTypeOf('string');
-    expect(PALETTE.length).toBe(COOL_PALETTE.length + WARM_PALETTE.length);
+    expect(PALETTE.length).toBe(UNIT_PALETTE.length + CLUSTER_PALETTE.length);
+  });
+});
+
+describe('the touching graph', () => {
+  it('carries every shared border, not only the ones a road crosses', () => {
+    let touchEdges = 0;
+    let roadEdges = 0;
+    for (let i = 0; i < data.uatCount; i += 1) {
+      touchEdges += data.touchStart[i + 1]! - data.touchStart[i]!;
+      roadEdges += data.neighbourStart[i + 1]! - data.neighbourStart[i]!;
+    }
+    expect(touchEdges).toBe(9281 * 2);
+    expect(roadEdges).toBe(5902 * 2);
+    expect(touchEdges).toBeGreaterThan(roadEdges);
+  });
+
+  it('is symmetric', () => {
+    for (let a = 0; a < data.uatCount; a += 1) {
+      for (let e = data.touchStart[a]!; e < data.touchStart[a + 1]!; e += 1) {
+        const b = data.touching[e]!;
+        const back = data.touching.subarray(data.touchStart[b]!, data.touchStart[b + 1]!);
+        expect(back).toContain(a);
+      }
+    }
+  });
+
+  it('separates Sulina, Crișan and Chilia Veche', () => {
+    // Three separate units in the Delta with no road between them. The road graph said they
+    // were not neighbours, so all three came out orange and read as one unit.
+    const { result, colourOf } = colourFor(DEFAULT_PARAMS);
+    const find = (name: string): number => {
+      const i = data.attributes.name.findIndex(
+        (n, k) => n.toUpperCase().includes(name) && data.attributes.county[k] === 'TL',
+      );
+      if (i === -1) throw new Error(`missing ${name}`);
+      return i;
+    };
+    const three = ['SULINA', 'CRIȘAN', 'CHILIA VECHE'].map(find);
+    expect(new Set(three.map((i) => result.regionOf[i]!)).size).toBe(3);
+    expect(new Set(three.map((i) => colourOf[i]!)).size).toBe(3);
+  });
+});
+
+describe('the palette', () => {
+  it('has no two colours a reader cannot tell apart', () => {
+    // Perceptual distance in CIELAB. The palette this replaced had two olive-greens 5.0
+    // apart, a green and an emerald at 9.0, and two indigos at 8.1 — all of which look
+    // identical in adjacent polygons. Below about 25 readers start guessing.
+    const lab = (hex: string): [number, number, number] => {
+      const to = (v: number): number => (v > 0.04045 ? ((v + 0.055) / 1.055) ** 2.4 : v / 12.92);
+      const r = to(parseInt(hex.slice(1, 3), 16) / 255);
+      const g = to(parseInt(hex.slice(3, 5), 16) / 255);
+      const b = to(parseInt(hex.slice(5, 7), 16) / 255);
+      const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+      const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+      const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+      return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+    };
+    const tooClose: string[] = [];
+    for (let i = 0; i < PALETTE.length; i += 1) {
+      for (let j = i + 1; j < PALETTE.length; j += 1) {
+        const [l1, a1, b1] = lab(PALETTE[i]!);
+        const [l2, a2, b2] = lab(PALETTE[j]!);
+        const d = Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+        if (d < 25) tooClose.push(`${PALETTE[i]} / ${PALETTE[j]} ΔE ${d.toFixed(1)}`);
+      }
+    }
+    expect(tooClose).toEqual([]);
   });
 });

@@ -49,6 +49,8 @@ export type Overlay = (typeof OVERLAYS)[number];
 export const SEAT_KIND = { CAPITAL: 0, CENTRE: 1, ORPHAN: 2, UNCHANGED: 3 } as const;
 
 export const COUNTY_LINE_COLOUR = '#f2f4f7';
+/** Brighter than the plain county line, so the focused border reads over any unit colour. */
+export const COUNTY_FOCUS_COLOUR = '#ffd166';
 export const REGION_LINE_COLOUR = '#7cc4de';
 export const SEAT_COLOUR = '#e6e9ee';
 export const CAPITAL_COLOUR = '#ffd166';
@@ -131,6 +133,8 @@ export interface MapHandle {
     costBreaks: number[],
   ) => void;
   setSelected: (index: number | null) => void;
+  /** Outline one county's border, by two-letter code, or clear it with null. */
+  setCountyFocus: (code: string | null) => void;
   /** Centre the map on a UAT's seat, wherever it is. */
   flyTo: (index: number) => void;
   onSelect: (handler: (index: number | null) => void) => void;
@@ -258,6 +262,25 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     source: 'counties',
     layout: { visibility: 'none' },
     paint: { 'line-color': COUNTY_LINE_COLOUR, 'line-width': 1.2, 'line-opacity': 0.75 },
+  });
+
+  // The border of whichever county the pointer or the selection is in, always drawn.
+  //
+  // The county boundary is the hardest constraint in the model — nothing but Bucharest may
+  // cross one — so knowing which county you are looking at explains more of the shape on
+  // screen than any other single line. Independent of the counties overlay: this answers
+  // "which county is this", not "where are all the counties".
+  map.addLayer({
+    id: 'county-focus-line',
+    type: 'line',
+    source: 'counties',
+    filter: ['==', ['literal', ''], ''],
+    paint: {
+      'line-color': COUNTY_FOCUS_COLOUR,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 6, 2.2, 10, 3.4],
+      'line-opacity': 0.95,
+      'line-blur': 0.4,
+    },
   });
 
   map.addSource('regions', { type: 'geojson', data: `${dataBase}regions.geojson` });
@@ -419,6 +442,16 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
   };
 
+  /** Outline one county, or none when `code` is null. */
+  const setCountyFocus = (code: string | null): void => {
+    map.setFilter(
+      'county-focus-line',
+      code === null
+        ? ['==', ['literal', ''], 'x']
+        : ['any', ['==', ['get', 'leftcode'], code], ['==', ['get', 'rightcode'], code]],
+    );
+  };
+
   const setCentres = (kindOf: Int8Array): void => {
     for (let i = 0; i < kindOf.length; i += 1) {
       map.setFeatureState({ source: 'seats', id: i }, { kind: kindOf[i] });
@@ -558,6 +591,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     map,
     applyAssignment,
     setSelected,
+    setCountyFocus,
     flyTo,
     onSelect: (handler) => selectHandlers.push(handler),
     onHover: (handler) => hoverHandlers.push(handler),

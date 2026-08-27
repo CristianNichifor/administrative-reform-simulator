@@ -80,11 +80,25 @@ export function decode(raw: RawPayload): ModelData {
     countyOf[i] = idx;
   }
 
-  // adjacency.bin: a u16[] | b u16[]. Stored once per edge, expanded to both directions.
-  const edges = manifest.edgeCount;
-  const edgeA = new Uint16Array(raw.adjacencyBin, 0, edges);
-  const edgeB = new Uint16Array(raw.adjacencyBin, edges * U16, edges);
-  const edgeRoad = new Float32Array(raw.adjacencyBin, edges * U16 * 2, edges);
+  // adjacency.bin: a u16[] | b u16[] | roadM f32[] | traversable u8[].
+  //
+  // Every shared border ships, whether a road crosses it or not, sorted so the traversable
+  // ones come first. The model walks only those — it cannot grow over a border with no road
+  // — while the colouring needs all of them, because two units that touch on screen must not
+  // be given the same colour whether or not a road joins them.
+  const allEdges = manifest.edgeCount;
+  const edgeA = new Uint16Array(raw.adjacencyBin, 0, allEdges);
+  const edgeB = new Uint16Array(raw.adjacencyBin, allEdges * U16, allEdges);
+  const edgeRoad = new Float32Array(raw.adjacencyBin, allEdges * U16 * 2, allEdges);
+  const edgeTraversable = new Uint8Array(
+    raw.adjacencyBin,
+    allEdges * U16 * 2 + allEdges * 4,
+    allEdges,
+  );
+
+  // Traversable first in the file, so the model's edge count is just the length of that run.
+  let edges = 0;
+  while (edges < allEdges && edgeTraversable[edges] === 1) edges += 1;
 
   const degree = new Uint32Array(n);
   for (let e = 0; e < edges; e += 1) {
@@ -124,6 +138,25 @@ export function decode(raw: RawPayload): ModelData {
       neighbours[from + k] = pairs[k]![0];
       neighbourRoadM[from + k] = pairs[k]![1];
     }
+  }
+
+  // The touching graph, over every shared border. Used only for colouring.
+  const touchDegree = new Uint32Array(n);
+  for (let e = 0; e < allEdges; e += 1) {
+    touchDegree[edgeA[e]!] = touchDegree[edgeA[e]!]! + 1;
+    touchDegree[edgeB[e]!] = touchDegree[edgeB[e]!]! + 1;
+  }
+  const touchStart = new Uint32Array(n + 1);
+  for (let i = 0; i < n; i += 1) touchStart[i + 1] = touchStart[i]! + touchDegree[i]!;
+  const touchCursor = touchStart.slice(0, n);
+  const touching = new Uint16Array(allEdges * 2);
+  for (let e = 0; e < allEdges; e += 1) {
+    const a = edgeA[e]!;
+    const b = edgeB[e]!;
+    touching[touchCursor[a]!] = b;
+    touchCursor[a] = touchCursor[a]! + 1;
+    touching[touchCursor[b]!] = a;
+    touchCursor[b] = touchCursor[b]! + 1;
   }
 
   // candidacy.bin: per radius, absorber u16[] | target u16[] | overlap u8[] | seat u8[]
@@ -197,6 +230,8 @@ export function decode(raw: RawPayload): ModelData {
     ilfovCounty,
     neighbours,
     neighbourRoadM,
+    touching,
+    touchStart,
     neighbourStart,
     byRadius,
     absorbers: Uint16Array.from([...absorberSeen].sort((a, b) => a - b)),

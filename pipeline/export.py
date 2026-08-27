@@ -10,7 +10,7 @@ Layout, all little-endian:
     manifest.json       shapes and offsets; the only thing that needs parsing
     attributes.json     siruta, name, county per UAT — for the UI, not the hot path
     attributes.bin      population u32 | seatX f32 | seatY f32 | admin f32 | operating f32
-    adjacency.bin       a u16 | b u16 | traversable u8
+    adjacency.bin       a u16 | b u16 | roadM f32 | traversable u8
     candidacy.bin       absorber u16 | uat u16 | overlap u8 (percent) | seatInside u8
 
 UATs are addressed by **index**, not by SIRUTA string, everywhere in the binary payload.
@@ -27,6 +27,7 @@ import argparse
 import json
 import math
 import sys
+import unicodedata
 
 import geopandas as gpd
 import numpy as np
@@ -211,15 +212,39 @@ def main(argv: list[str] | None = None) -> int:
             return round(node, places)
         return node
 
+    # County name -> code, so a boundary segment can be matched to the county the model
+    # talks about. The boundary file names counties in full; everything else in the payload
+    # uses the two-letter code, and the map has to highlight the border of the county a
+    # hovered commune belongs to.
+    def county_key(name: str) -> str:
+        # "MUNICIPIUL BUCURESTI" in the UAT table, "Bucuresti" in the boundary file, and
+        # Romanian diacritics that differ between sources. Fold both away rather than
+        # matching on the literal string.
+        text = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode()
+        return text.upper().removeprefix("MUNICIPIUL ").strip()
+
+    code_of_county = {
+        county_key(n): c for n, c in zip(uats["county_name"], uats["county_code"], strict=True)
+    }
+
     def write_context(raw_name: str, out_name: str, keep: tuple[str, ...] = ()) -> int:
         raw_path = RAW_DIR / raw_name
         if not raw_path.exists():
             raise SystemExit(f"Missing {raw_path} — run pipeline.fetch")
         payload = json.loads(raw_path.read_text(encoding="utf-8"))
+
+        def properties(f: dict) -> dict:
+            props = {k: f["properties"].get(k) for k in keep}
+            for side in ("left", "right"):
+                name = props.get(f"{side}county")
+                if name is not None:
+                    props[f"{side}code"] = code_of_county.get(county_key(name))
+            return props
+
         features = [
             {
                 "type": "Feature",
-                "properties": {k: f["properties"].get(k) for k in keep},
+                "properties": properties(f),
                 "geometry": {
                     "type": f["geometry"]["type"],
                     "coordinates": round_coords(f["geometry"]["coordinates"]),
@@ -236,6 +261,28 @@ def main(argv: list[str] | None = None) -> int:
     n_counties = write_context(
         "county_lines.geojson", "counties.geojson", ("leftcounty", "rightcounty")
     )
+    # Every boundary side must resolve to a county the model knows, or the highlight silently
+    # fails for that county.
+    county_geo = json.loads((WEB_DATA_DIR / "counties.geojson").read_text(encoding="utf-8"))
+    unmatched = sorted(
+        {
+            f["properties"][f"{side}county"]
+            for f in county_geo["features"]
+            for side in ("left", "right")
+            if f["properties"].get(f"{side}county") and not f["properties"].get(f"{side}code")
+        }
+    )
+    report.add(
+        Check(
+            "county_codes_on_boundaries",
+            not unmatched,
+            f"{n_counties} boundary segments, every side resolved to a county code"
+            if not unmatched
+            else f"unmatched county names: {', '.join(unmatched)}",
+            fatal=bool(unmatched),
+        )
+    )
+
     n_regions = write_context(
         "region_lines.geojson", "regions.geojson", ("leftregion", "rightregion")
     )
@@ -342,16 +389,28 @@ def main(argv: list[str] | None = None) -> int:
         )
     }
 
-    usable = adjacency[adjacency["traversable"]]
-    a_idx = np.array([index_of[s] for s in usable["a_siruta"]], dtype=np.uint16)
-    b_idx = np.array([index_of[s] for s in usable["b_siruta"]], dtype=np.uint16)
+    # Every edge ships, traversable or not, with a flag saying which.
+    #
+    # The model only ever walks the traversable ones — a border no road crosses is not a
+    # border a unit can grow over. The map needs the others: two units can touch on screen
+    # without a road between them, and if the colouring cannot see that they touch it gives
+    # them the same colour and they read as one shape. Sulina, Crisan and Chilia Veche were
+    # three separate units drawn in one block of orange for exactly this reason.
+    ordered = adjacency.sort_values(["traversable"], ascending=False, kind="stable")
+    a_idx = np.array([index_of[s] for s in ordered["a_siruta"]], dtype=np.uint16)
+    b_idx = np.array([index_of[s] for s in ordered["b_siruta"]], dtype=np.uint16)
     road_m = np.array(
-        [road_lookup[(a, b)] for a, b in zip(usable["a_siruta"], usable["b_siruta"], strict=True)],
+        [
+            road_lookup[(a, b)]
+            for a, b in zip(ordered["a_siruta"], ordered["b_siruta"], strict=True)
+        ],
         dtype=np.float32,
     )
+    traversable = ordered["traversable"].to_numpy().astype(np.uint8)
     (WEB_DATA_DIR / "adjacency.bin").write_bytes(
-        a_idx.tobytes() + b_idx.tobytes() + road_m.tobytes()
+        a_idx.tobytes() + b_idx.tobytes() + road_m.tobytes() + traversable.tobytes()
     )
+    usable = adjacency[adjacency["traversable"]]
 
     report.add(
         Check(
@@ -366,7 +425,8 @@ def main(argv: list[str] | None = None) -> int:
         Check(
             "adjacency_exported",
             True,
-            f"{len(usable)} traversable edges of {len(adjacency)} total",
+            f"{len(adjacency)} edges exported, {len(usable)} of them traversable; the "
+            "model walks only those, the colouring uses all of them",
         )
     )
 
@@ -429,7 +489,11 @@ def main(argv: list[str] | None = None) -> int:
         "overlapScale": OVERLAP_SCALE,
         "overlapDecimals": OVERLAP_QUANTISATION_DECIMALS,
         "radiusGrid": list(RADIUS_GRID_M),
-        "edgeCount": int(len(usable)),
+        # Every edge in the file, traversable or not; the traversable ones are the leading
+        # run, and the loader takes its length from the flag rather than from a second count
+        # that could disagree with the bytes.
+        "edgeCount": int(len(adjacency)),
+        "traversableEdgeCount": int(len(usable)),
         "candidacyCount": int(cursor),
         "candidacyByRadius": radius_offsets,
     }

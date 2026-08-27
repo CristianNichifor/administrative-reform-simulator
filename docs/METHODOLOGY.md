@@ -369,6 +369,31 @@ Source, data reports and licence: see the repository.
 
 <a id="metodologie-română"></a>
 
+## Reading the map
+
+**No two units that touch share a colour.** The constraint runs over every shared border,
+whether or not a road crosses it, and it deliberately crosses county lines: two units either
+side of a county boundary touch on screen, and if they match the boundary between them
+disappears.
+
+That last part was wrong until recently. The colouring walked the *road* graph — the 5,902
+borders a road crosses — rather than all 9,281 shared borders. Sulina, Crișan and Chilia
+Veche are three separate units in the Delta with no road between them, so the colouring
+believed they were not neighbours and drew all three in one block of orange, which read as a
+single unit with three seat dots in it. The seats were right; the colour was not.
+
+**The twelve colours are chosen by search, not by eye.** The palette they replaced had
+twenty hand-picked entries, several of them near-duplicates: two olive-greens 5.0 apart in
+CIELAB, a green and an emerald 9.0 apart, two indigos 8.1 apart. Adjacent units drawn in
+those pairs are indistinguishable. These twelve come from a farthest-point search over vivid
+hues and the closest pair sits 32.8 apart, which a test enforces — the palette should not be
+hand-edited, because hand-editing is how the near-duplicates got in. Greedy colouring never
+needs more than six of them at any slider setting.
+
+**Hovering or selecting a commune outlines its county.** The county boundary is the hardest
+constraint in the model, so knowing which county you are looking at explains more of the
+shape on screen than any other single line.
+
 ## Manual overrides
 
 Every rule in this document is deterministic, and none of them knows anything the map does
@@ -698,6 +723,31 @@ implementat de două ori — o dată în Python ca referință, o dată în Type
 parametri. Dacă vreodată nu coincid, browserul este cel greșit.
 
 Sursă, rapoarte de date și licență: vezi repository-ul.
+
+## Cum se citește harta
+
+**Două unități care se ating nu au niciodată aceeași culoare.** Restricția se aplică pe orice
+graniță comună, indiferent dacă o traversează un drum, și trece intenționat peste limitele de
+județ: două unități de o parte și de alta a unei limite se ating pe ecran, iar dacă au aceeași
+culoare limita dintre ele dispare.
+
+Această ultimă parte a fost greșită până de curând. Colorarea folosea graful *rutier* — cele
+5.902 granițe traversate de un drum — în loc de toate cele 9.281 de granițe comune. Sulina,
+Crișan și Chilia Veche sunt trei unități distincte din Deltă, fără drum între ele, așa că
+algoritmul le credea nevecine și le desena pe toate trei într-un singur bloc portocaliu, care
+se citea ca o singură unitate cu trei puncte de sediu în ea. Sediile erau corecte, culoarea nu.
+
+**Cele douăsprezece culori sunt alese prin căutare, nu cu ochiul.** Paleta anterioară avea
+douăzeci de intrări alese manual, câteva aproape identice: două verzi-măslinii la distanță
+CIELAB de 5,0, un verde și un smarald la 9,0, două indigouri la 8,1. Unități vecine desenate
+în asemenea perechi nu pot fi deosebite. Cele douăsprezece provin dintr-o căutare de tip
+farthest-point peste nuanțe vii, iar cea mai apropiată pereche este la 32,8 — valoare impusă
+de un test. Paleta nu trebuie editată manual: exact așa au apărut aproape-duplicatele.
+Colorarea greedy nu are nevoie niciodată de mai mult de șase dintre ele.
+
+**Trecerea cu mouse-ul sau selectarea unei comune conturează județul ei.** Limita de județ
+este cea mai dură constrângere din model, deci a ști în ce județ vă aflați explică mai mult
+din forma de pe ecran decât orice altă linie.
 
 ## Modificări manuale
 

@@ -24,7 +24,7 @@ import {
   UNCHANGED_COLOUR,
   type Overlay,
 } from './map/map';
-import { COOL_PALETTE, WARM_PALETTE } from './model/colour';
+import { CLUSTER_PALETTE, UNIT_PALETTE } from './model/colour';
 import { DEFAULT_PARAMS, REASON, type Params, type ViewMode } from './model/types';
 import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
@@ -286,8 +286,8 @@ async function boot(): Promise<void> {
       [SEAT_COLOUR, strings.legendAbsorber, true],
       [ORPHAN_SEAT_COLOUR, strings.legendOrphanSeat, true],
       [UNCHANGED_SEAT_COLOUR, strings.legendUnchangedSeat, true],
-      [COOL_PALETTE[0]!, strings.legendAbsorbed],
-      [WARM_PALETTE[0]!, strings.legendOrphan],
+      [UNIT_PALETTE[0]!, strings.legendAbsorbed],
+      [CLUSTER_PALETTE[0]!, strings.legendOrphan],
       [UNCHANGED_COLOUR, strings.legendUnchanged],
     ];
     el('#legend').innerHTML =
@@ -828,8 +828,16 @@ async function boot(): Promise<void> {
   mapHandle.onHover((index, x, y) => {
     if (index === null || !ready || !latest) {
       hovercard.hidden = true;
+      // Fall back to the selected commune's county, so the outline does not flicker off
+      // every time the pointer crosses a gap.
+      mapHandle.setCountyFocus(
+        scenario.selected !== null && ready
+          ? (ready.attributes.county[scenario.selected] ?? null)
+          : null,
+      );
       return;
     }
+    mapHandle.setCountyFocus(ready.attributes.county[index] ?? null);
     const unit = latest.regionOf[index]!;
     let unitPop = 0;
     let unitMembers = 0;
@@ -873,6 +881,7 @@ async function boot(): Promise<void> {
 
   mapHandle.onSelect((index) => {
     scenario.selected = index;
+    mapHandle.setCountyFocus(index === null ? null : (ready?.attributes.county[index] ?? null));
     mapHandle.setSelected(index);
     writeHash(scenario);
     renderDetail();
