@@ -29,6 +29,7 @@ import pandas as pd
 from pipeline.build_geometry import Check, Report, normalise_siruta, write_report
 from pipeline.constants import (
     CRS_STEREO70,
+    DELTA_WATER_UATS,
     MAX_EXPECTED_ROAD_ISOLATED_UATS,
     OSM_ROAD_CLASSES,
     SHARED_BORDER_BUFFER_M,
@@ -48,6 +49,9 @@ ROAD_CLASS_RANK = {cls: i for i, cls in enumerate(OSM_ROAD_CLASSES)}
 # routing graph — once you are on one it is a real road — but they cannot be the thing that
 # makes a border passable.
 CLASSES_WITHOUT_LOCAL_ACCESS = frozenset({"motorway"})
+
+# The Delta set lives in constants: build_adjacency makes its borders crossable and the
+# model exempts merges inside it from the distance cap, and the two must not drift apart.
 
 # A leftid/rightid of 0 means the other side of the segment is outside Romania.
 EXTERIOR_CODE = "0"
@@ -336,8 +340,16 @@ def mark_fallback_edges(edges: gpd.GeoDataFrame, uats: gpd.GeoDataFrame, report:
     edges = edges.copy()
     touches_stranded = edges["a_siruta"].isin(stranded) | edges["b_siruta"].isin(stranded)
     edges["is_fallback"] = ~edges["has_road"] & touches_stranded
+
+    # Both sides in the Delta: the channel between them is the road.
+    edges["is_water_route"] = (
+        edges["a_siruta"].isin(DELTA_WATER_UATS)
+        & edges["b_siruta"].isin(DELTA_WATER_UATS)
+        & ~edges["has_road"]
+    )
+
     # What the model actually traverses.
-    edges["traversable"] = edges["has_road"] | edges["is_fallback"]
+    edges["traversable"] = edges["has_road"] | edges["is_fallback"] | edges["is_water_route"]
 
     name = uats.set_index("siruta")["name_uat"]
     county = uats.set_index("siruta")["county_code"]
@@ -346,7 +358,9 @@ def mark_fallback_edges(edges: gpd.GeoDataFrame, uats: gpd.GeoDataFrame, report:
             "water_separated_fallback",
             True,
             f"{len(stranded)} UATs have no road-connected neighbour and fall back to plain "
-            f"shared-border adjacency, enabling {int(edges['is_fallback'].sum())} edges",
+            f"shared-border adjacency, enabling {int(edges['is_fallback'].sum())} edges; "
+            f"{int(edges['is_water_route'].sum())} further edges are Danube Delta channels, "
+            "where the water is the network",
             rows=[
                 {"siruta": s, "name": name.get(s), "county": county.get(s)}
                 for s in sorted(stranded)[:50]
@@ -452,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             "b_siruta": edges["b_siruta"],
             "has_road": edges["has_road"],
             "is_fallback": edges["is_fallback"],
+            "is_water_route": edges["is_water_route"],
             "traversable": edges["traversable"],
             "road_class": edges["road_class"],
             "legalstat": edges["legalstat"],

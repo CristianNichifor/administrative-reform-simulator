@@ -37,6 +37,7 @@ from pipeline.build_geometry import Check, Report, write_report
 from pipeline.constants import (
     CRS_STEREO70,
     CRS_WGS84,
+    DELTA_WATER_UATS,
     OVERLAP_QUANTISATION_DECIMALS,
     RADIUS_GRID_M,
     admin_rank_of,
@@ -144,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
                 # its seat. Shipped resolved for the same reason isCapital is: deriving it
                 # from SIRUTA level names in two languages is two chances to disagree.
                 "adminRank": [admin_rank_of(v) for v in uats["natlevname"]],
+                # The Delta, where the two distance rules bend. Shipped rather than listed
+                # again in TypeScript, so the exception cannot mean one thing in the
+                # reference model and another in the browser.
+                "deltaWater": [bool(s in DELTA_WATER_UATS) for s in uats["siruta"]],
                 "isCapital": [
                     bool(s in COUNTY_CAPITAL_SIRUTA or c == "B")
                     for s, c in zip(uats["siruta"], uats["county_code"], strict=True)

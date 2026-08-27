@@ -68,6 +68,17 @@ function mayAbsorb(data: ModelData, absorber: number, uat: number): boolean {
  */
 function capitalCore(data: ModelData, params: Params, capital: number, tier: number): Set<number> {
   const core = new Set<number>();
+
+  // Matches eligibleFor exactly. A centre stood down for a capital that cannot reach it is
+  // stranded: it loses its own centre status and nobody arrives to take it.
+  if (tier === TIER_COUNTY_CAPITAL) {
+    for (let e = data.neighbourStart[capital]!; e < data.neighbourStart[capital + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (mayAbsorb(data, capital, nb)) core.add(nb);
+    }
+    return core;
+  }
+
   const slice = sliceFor(data, params, tier);
   const radius = tierRadius(params, tier);
   const sources = tier === TIER_NATIONAL_CAPITAL ? data.bucharestSectors : [capital];
@@ -137,6 +148,21 @@ function shadowingCapital(
  */
 function eligibleFor(data: ModelData, params: Params, seed: number, tier: number): Map<number, number> {
   const admitted = new Map<number, number>();
+
+  // A county capital takes the ring that borders it, and nothing beyond.
+  //
+  // The radius does not mean what its name suggests: candidacy is area overlap against a
+  // buffer round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
+  // them past 10 km by road and one at 30 km. Bucharest is deliberately excluded — it is the
+  // national capital, not a resedinta de judet, and its ring is two communes deep.
+  if (tier === TIER_COUNTY_CAPITAL) {
+    for (let e = data.neighbourStart[seed]!; e < data.neighbourStart[seed + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (mayAbsorb(data, seed, nb)) admitted.set(nb, 0);
+    }
+    return admitted;
+  }
+
   const slice = sliceFor(data, params, tier);
   const radius = tierRadius(params, tier);
   // Candidacy is precomputed per UAT and Bucharest is represented by one sector, whose
@@ -808,6 +834,11 @@ function consolidateToTarget(
         // cap toothless whenever the partner kept the seat.
         const compact = (other: number): boolean => {
           if (params.maxRoadM <= 0) return true;
+          // Inside the Delta the cap does not apply. Pardina is 57.8 km from Sulina by water
+          // and there is no shorter route and no other administration to join; enforcing the
+          // cap there leaves five unviable units rather than one Delta.
+          const everyoneHere = [...members.get(region)!, ...members.get(other)!];
+          if (everyoneHere.every((m) => data.attributes.deltaWater[m])) return true;
           const keepSeat = beats(region, other) ? region : other;
           const reach =
             keepSeat === region ? distances : countyRoadDistances(data, county, [other]);
@@ -906,6 +937,10 @@ function reseatUnits(
     const county = data.countyOf[oldSeat]!;
     const holdsTheCap = (candidate: number): boolean => {
       if (params.maxRoadM <= 0) return true;
+      // Exempt for the same reason as the merge cap: without this the Delta keeps whichever
+      // seat it grew from — Crisan, a commune of 1,092 — instead of Oras Sulina, the town it
+      // is actually administered from.
+      if (list.every((m) => data.attributes.deltaWater[m])) return true;
       const reach = countyRoadDistances(data, county, [candidate]);
       // Members in another county are the Bucharest ring, which this county-scoped measure
       // cannot see; the cap is not enforced across that one line.

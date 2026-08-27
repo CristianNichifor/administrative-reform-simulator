@@ -102,6 +102,26 @@ looks indefensible on a map and would be the first thing an opponent screenshott
 
 **Step 3 — absorption, by road distance, in three passes.**
 
+*A county capital takes the ring that borders it, and nothing beyond.* Not a radius: the
+radius does not mean what its name suggests. Candidacy is measured as area overlap against a
+buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
+them past 10 km by road and one at 30. A capital bounded that way sprawls while the towns
+around it stay small — Timisoara reached 30 communes and 420,000 people while Oras Ciacova
+sat at 21,000. The first ring is unambiguous and does not depend on the shape of the city.
+
+Bucharest is excluded from this: it is the national capital rather than a resedinta de judet,
+and its ring is genuinely two communes deep — Cernica borders Pantelimon rather than a
+sector, and belongs to the city all the same.
+
+*The Danube Delta is the one place where water counts as road.* Everywhere else a border only
+counts if a road crosses it, which is right: two communes either side of a bridgeless river
+are not neighbours in any sense a resident would recognise. In the Delta there are almost no
+roads and the channels are the network. Left to the road test it came out as three units of
+one to three communes each, none able to reach the others or Tulcea. Borders inside the Delta
+are crossable, and merges inside it are exempt from the distance cap — Pardina is 57.8 km
+from Sulina by water and there is no shorter route and no other administration to join. It is
+now one unit of seven communes seated on Oras Sulina.
+
 *Capitals are not capped.* A county capital absorbs whatever its radius admits. The
 population target governs the smaller centres only — Tulcea alone is 65,624, already past a
 50,000 target, so capping it would have it absorb nothing at all.
@@ -430,10 +450,9 @@ actionable. There are exactly two:
 
 **Past the road cap.** The nearest merge available would put some commune further from its
 town hall than the cap allows, and the list gives the distance — which is the answer to
-"what would I have to set the cap to". Four of the six single-UAT units at the default
-settings are this: Chilia Veche at 74.1 km, Dănicei at 61.4, Lunca Cernii de Jos at 53.8, and
-Crișan at 50.9, which misses by 900 metres. Raising the cap from 50 km to 80 km takes the
-country from 260 units to 171 and the saving from 8.88 to 9.25 bn RON.
+"what would I have to set the cap to". Three of the five single-UAT units at the default
+settings are this, Dănicei at 61.4 km among them. Raising the cap trades unit count against
+travel time, and it is the single most consequential slider on the page.
 
 **No road neighbour in its own county.** Pietroșani's only road-connected neighbour is in
 Giurgiu; Nămoloasa's is in Vrancea. The county rule forbids every merge either could make, so
@@ -523,6 +542,23 @@ absorbită pe baza câtorva metri de suprapunere într-un colț, ceea ce arată 
 hartă și ar fi primul lucru fotografiat de un contestatar.
 
 **Pasul 3 — absorbția.**
+*O reședință de județ preia inelul care se învecinează cu ea și nimic dincolo de el.* Nu o
+rază: raza nu înseamnă ce sugerează numele. Candidatura se măsoară ca suprapunere de
+suprafață cu un tampon în jurul întregului poligon al orașului, așa că „10 km" pentru
+Timișoara admitea 19 comune, 15 dintre ele peste 10 km pe drum și una la 30. O reședință
+mărginită așa se întinde, în timp ce orașele din jur rămân mici — Timișoara ajungea la 30 de
+comune și 420.000 de locuitori, iar Orașul Ciacova rămânea la 21.000. Bucureștiul face
+excepție: este capitala națională, nu o reședință de județ, iar inelul lui are efectiv două
+comune adâncime.
+
+*Delta Dunării este singurul loc unde apa contează drept drum.* Acolo aproape că nu există
+drumuri, iar canalele sunt rețeaua. Lăsată pe seama testului rutier, Delta ieșea ca trei
+unități de una până la trei comune, niciuna capabilă să ajungă la celelalte sau la Tulcea.
+Granițele din interiorul Deltei sunt traversabile, iar fuziunile din interiorul ei sunt
+scutite de plafonul de distanță — Pardina este la 57,8 km de Sulina pe apă și nu există rută
+mai scurtă și nicio altă administrație la care să adere. Acum este o singură unitate de șapte
+comune, cu sediul la Orașul Sulina.
+
 Centrele preiau comune într-o ordine strictă: întâi toate reședințele de județ, apoi
 centrele care depășesc pragul de populație, apoi cele promovate. În fiecare grupă, cele cu
 populație mai mare merg primele. Egalitățile se departajează după codul SIRUTA, deci ordinea
@@ -788,10 +824,9 @@ doar un motiv permite o acțiune. Există exact două:
 
 **Peste plafonul de drum.** Cea mai apropiată fuziune posibilă ar duce o comună mai departe de
 primărie decât permite plafonul, iar lista dă distanța — adică răspunsul la întrebarea „la cât
-ar trebui să pun plafonul". Patru din cele șase unități de o singură UAT la setările implicite
-sunt în această situație: Chilia Veche la 74,1 km, Dănicei la 61,4, Lunca Cernii de Jos la
-53,8 și Crișan la 50,9, care ratează cu 900 de metri. Ridicarea plafonului de la 50 km la
-80 km duce țara de la 260 la 171 de unități, iar economia de la 8,88 la 9,25 miliarde lei.
+ar trebui să pun plafonul". Trei din cele cinci unități de o singură UAT la setările implicite
+sunt în această situație, între care Dănicei la 61,4 km. Ridicarea plafonului schimbă numărul
+de unități contra timpului de deplasare și este cel mai consecvent cursor din pagină.
 
 **Niciun vecin pe drum în propriul județ.** Singurul vecin rutier al Pietroșaniului este în
 Giurgiu, iar al Nămoloasei în Vrancea. Regula județului le interzice orice fuziune, deci

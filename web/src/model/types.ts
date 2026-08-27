@@ -88,6 +88,8 @@ export interface Attributes {
   isCapital: boolean[];
   /** Administrative standing, smaller is more significant: sector 0 … comuna 4. */
   adminRank: number[];
+  /** Danube Delta communes, where borders are water and the distance cap does not apply. */
+  deltaWater: boolean[];
 }
 
 /**

@@ -147,8 +147,14 @@ describe('the touching graph', () => {
       touchEdges += data.touchStart[i + 1]! - data.touchStart[i]!;
       roadEdges += data.neighbourStart[i + 1]! - data.neighbourStart[i]!;
     }
-    expect(touchEdges).toBe(9281 * 2);
-    expect(roadEdges).toBe(5902 * 2);
+    // Counts come from the manifest, not from literals: the traversable total moves whenever
+    // the road test or the Delta exception changes, and a hardcoded number turns that into a
+    // test failure rather than information.
+    const manifest = readJson<{ edgeCount: number; traversableEdgeCount: number }>(
+      'manifest.json',
+    );
+    expect(touchEdges).toBe(manifest.edgeCount * 2);
+    expect(roadEdges).toBe(manifest.traversableEdgeCount * 2);
     expect(touchEdges).toBeGreaterThan(roadEdges);
   });
 
@@ -162,10 +168,11 @@ describe('the touching graph', () => {
     }
   });
 
-  it('separates Sulina, Crișan and Chilia Veche', () => {
-    // Three separate units in the Delta with no road between them. The road graph said they
-    // were not neighbours, so all three came out orange and read as one unit.
-    const { result, colourOf } = colourFor(DEFAULT_PARAMS);
+  it('makes the Delta one unit seated on Sulina', () => {
+    // These were three separate units drawn in one block of orange, because the road graph
+    // said they were not neighbours — there is no road between them, only water. The water
+    // routes now count, so they are one unit, and the colouring question is moot for them.
+    const { result } = colourFor(DEFAULT_PARAMS);
     const find = (name: string): number => {
       const i = data.attributes.name.findIndex(
         (n, k) => n.toUpperCase().includes(name) && data.attributes.county[k] === 'TL',
@@ -174,8 +181,10 @@ describe('the touching graph', () => {
       return i;
     };
     const three = ['SULINA', 'CRIȘAN', 'CHILIA VECHE'].map(find);
-    expect(new Set(three.map((i) => result.regionOf[i]!)).size).toBe(3);
-    expect(new Set(three.map((i) => colourOf[i]!)).size).toBe(3);
+    const units = new Set(three.map((i) => result.regionOf[i]!));
+    expect(units.size).toBe(1);
+    // Seated on the town, not on whichever commune the growth happened to start from.
+    expect(data.attributes.name[[...units][0]!]).toContain('SULINA');
   });
 });
 

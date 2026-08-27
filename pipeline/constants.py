@@ -135,6 +135,28 @@ COUNTY_CODES: Final[tuple[str, ...]] = (
 
 BUCHAREST_COUNTY_CODE: Final = "B"
 
+# The Danube Delta communes, where the channels are the transport network rather than roads.
+#
+# Two rules bend here, and only here. Borders between them count as crossable even with no
+# road, and a merge between two Delta units is exempt from the road-distance cap. Both follow
+# from the same fact: there is no alternative administration to compare against. Sulina is
+# reached by boat, Pardina is 57.8 km from it by water, and the choice is one Delta unit or
+# five that cannot function. Anywhere else a 57.8 km trip to the town hall would be a reason
+# to refuse the merge; here it is simply what the Delta is.
+DELTA_WATER_UATS: Final[frozenset[str]] = frozenset(
+    {
+        "159767",  # Oras Sulina
+        "160261",  # Crisan
+        "160172",  # Chilia Veche
+        "159883",  # C.A. Rosetti
+        "161231",  # Sfantu Gheorghe
+        "160779",  # Maliuc
+        "161133",  # Pardina
+        "160047",  # Ceatalchioi
+        "160911",  # Murighiol
+    }
+)
+
 # Bucharest's Ilfov ring: the one county line a single unit is allowed to cross.
 BUCHAREST_RING_COUNTY: Final = "IF"
 

@@ -43,6 +43,7 @@ from pipeline.constants import (
     ADMIN_RANK_ORAS,
     BUCHAREST_COUNTY_CODE,
     BUCHAREST_RING_COUNTY,
+    DELTA_WATER_UATS,
     MAX_ROAD_DEFAULT_M,
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
@@ -297,6 +298,24 @@ def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, flo
     not decide who your administration is. The overlap threshold stays as the guard against
     sliver absorptions it was always meant to be.
     """
+    # A county capital takes the ring that borders it, and nothing beyond.
+    #
+    # The radius does not mean what its name suggests: candidacy is area overlap against a
+    # buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes,
+    # 15 of them past 10 km by road and one at 30 km. A capital bounded that way sprawls
+    # while the towns around it stay small. The first ring is unambiguous, it is what
+    # "absorbs the nearby neighbours" says, and it does not depend on the shape of the city.
+    #
+    # Bucharest is deliberately not included. It is the national capital, not a resedinta de
+    # judet, and its ring is genuinely two communes deep — Cernica borders Pantelimon rather
+    # than a sector, and belongs to the city all the same.
+    if tier == TIER_COUNTY_CAPITAL:
+        return {
+            neighbour: 0.0
+            for neighbour in data.neighbours.get(seed, ())
+            if _may_absorb(data, seed, neighbour)
+        }
+
     radius = _tier_radius(params, tier)
 
     # Bucharest is represented by one sector but reaches as the whole city: candidacy is
@@ -548,6 +567,15 @@ def _capital_core(data: Data, params: Params, capital: str, tier: int) -> set[st
     the two seats are 38 km apart, and demoting a municipiu of 34,000 on that basis is
     indefensible. Here the centre's own seat has to be within the radius.
     """
+    # Matches _eligible exactly. A centre stood down for a capital that cannot reach it is
+    # stranded: it loses its own centre status and nobody arrives to take it.
+    if tier == TIER_COUNTY_CAPITAL:
+        return {
+            neighbour
+            for neighbour in data.neighbours.get(capital, ())
+            if _may_absorb(data, capital, neighbour)
+        }
+
     radius = _tier_radius(params, tier)
     sources = [capital]
     if tier == TIER_NATIONAL_CAPITAL:
@@ -890,6 +918,11 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             ) -> bool:
                 if params.max_road_m <= 0:
                     return True
+                # Inside the Delta the cap does not apply. Pardina is 57.8 km from Sulina by
+                # water and there is no shorter route and no other administration to join;
+                # enforcing the cap there leaves five unviable units rather than one Delta.
+                if all(m in DELTA_WATER_UATS for m in result.members[this] + result.members[other]):
+                    return True
                 keeps_seat = standing(this) <= standing(other)
                 reach = this_reach if keeps_seat else reach_from(other)
                 everyone = result.members[this] + result.members[other]
@@ -977,6 +1010,12 @@ def reseat_units(data: Data, params: Params, result: Result) -> None:
             candidate: str, members: list[str] = members, county: str = county
         ) -> bool:
             if params.max_road_m <= 0:
+                return True
+            # The Delta is exempt here for the same reason it is exempt from the merge cap:
+            # every distance inside it is long and there is no shorter alternative. Without
+            # this the unit keeps whichever seat it grew from — Crisan, a commune of 1,092 —
+            # instead of Oras Sulina, the town the Delta is actually administered from.
+            if all(m in DELTA_WATER_UATS for m in members):
                 return True
             reach = _county_road_distances(data, county, [candidate])
             # Members in another county are the Bucharest ring, which this county-scoped

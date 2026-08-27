@@ -29,7 +29,7 @@
     30000
   ],
   "edgeCount": 9281,
-  "traversableEdgeCount": 5902,
+  "traversableEdgeCount": 5912,
   "candidacyCount": 215572,
   "candidacyByRadius": {
     "5000": {

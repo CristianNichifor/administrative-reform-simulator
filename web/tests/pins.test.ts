@@ -261,7 +261,22 @@ describe('why a unit could not merge', () => {
 
   it('stops blocking once the cap is raised past the distance it reported', () => {
     const result = runModel(data, DEFAULT_PARAMS);
-    const chilia = find('CHILIA VECHE', 'TL');
+    // Whichever unit the cap is currently holding back — named cases move as the rules
+    // change, and the property under test is about the number, not about one commune.
+    const counts = new Map<number, number>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const seat = result.regionOf[i]!;
+      counts.set(seat, (counts.get(seat) ?? 0) + 1);
+    }
+    let chilia = -1;
+    for (const [seat, n] of counts) {
+      if (n !== 1) continue;
+      if (mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat)?.kind === 'cap') {
+        chilia = seat;
+        break;
+      }
+    }
+    if (chilia === -1) throw new Error('no unit is currently held back by the cap');
     const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, chilia);
     expect(blocker?.kind).toBe('cap');
     const needed = (blocker as { metres: number }).metres;
