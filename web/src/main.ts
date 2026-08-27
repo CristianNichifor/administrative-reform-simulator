@@ -52,6 +52,11 @@ const SLIDERS: SliderSpec[] = [
     format: (v, l) => formatNumber(v, l),
   },
   {
+    key: 'rNationalM', labelKey: 'rNational', helpKey: 'rNationalHelp',
+    min: 0, max: RADIUS_GRID.length - 1, step: 1,
+    format: (v) => KM(v),
+  },
+  {
     key: 'rCapM', labelKey: 'rCap', helpKey: 'rCapHelp',
     min: 0, max: RADIUS_GRID.length - 1, step: 1,
     format: (v) => KM(v),
@@ -88,7 +93,8 @@ const SLIDERS: SliderSpec[] = [
   },
 ];
 
-const isRadius = (key: keyof Params): boolean => key === 'rCapM' || key === 'rTownM';
+const isRadius = (key: keyof Params): boolean =>
+  key === 'rCapM' || key === 'rTownM' || key === 'rNationalM';
 
 function el<T extends HTMLElement>(selector: string): T {
   const node = document.querySelector<T>(selector);

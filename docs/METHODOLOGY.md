@@ -32,8 +32,14 @@ That is the whole point, and it is worth a worse compactness score.
 ### How the model works
 
 **Step 1 — choosing centres.**
-Two kinds of place automatically become an absorbing centre: the 41 county capitals plus
-Bucharest's six sectors, and any locality above the population threshold you set.
+Two kinds of place become an absorbing centre: the 41 county capitals, and any locality
+above the population threshold you set.
+
+**Bucharest is one centre, not six.** Its sectors are not candidates and never compete with
+each other — six parallel administrations over one continuous city is precisely the
+duplication this exercise is about. They merge into a single unit of 1.72 million. Because
+regions never cross county lines, that unit absorbs nothing beyond itself, which is also why
+the national-capital radius has almost no effect in practice.
 
 If a county ends up with fewer centres than the minimum you set, more are promoted. They are
 chosen by *how much uncovered population they would reach*, not by how large they are.
@@ -58,12 +64,36 @@ The radius is applied to the **whole territory of the centre**, not to a point a
 hall. A city and a 3,000-person commune would otherwise get identical reach from very
 different starting footprints.
 
-A commune is within reach if either enough of its territory falls inside the radius, or its
-main village falls inside it. The first test has a threshold you can set; without one, a
+A commune is within reach by any of three routes: enough of its territory falls inside the
+radius, its main village falls inside it, or it is within the radius **by road**. The third
+matters because a long, thin commune can sit ten minutes down a direct road and still fail
+an area test, since most of its area points somewhere else. Shape should not decide who your
+administration is. The first test has a threshold you can set; without one, a
 commune could be absorbed on the strength of a few metres of overlap at one corner, which
 looks indefensible on a map and would be the first thing an opponent screenshotted.
 
-**Step 3 — absorption, by road distance.**
+**Step 3 — absorption, by road distance, in three passes.**
+
+*Capitals are not capped.* A county capital absorbs whatever its radius admits. The
+population target governs the smaller centres only — Tulcea alone is 65,624, already past a
+50,000 target, so capping it would have it absorb nothing at all.
+
+*Smaller centres stop at the target.* Once a centre has gathered enough people it stops
+taking more, leaving something for its neighbours instead of letting whichever centre is
+nearest to the most communes sweep the county.
+
+*A centre bordering its county capital is held back.* Otherwise the capital simply eats it
+on the first step, and a perfectly good town disappears because of where it happens to sit.
+It is left alone while everyone else grows, then asked whether it can still reach the target
+from what remains. If it can, it stays a centre. If it cannot, it folds into the capital —
+the outcome it was being protected from, but only once that has been shown to be the right
+answer rather than an accident of ordering.
+
+At the default settings 69 centres are held this way; 5 survive on their own and 64 fold in.
+Not always into the capital: a neighbouring held centre that did reach the target grows in
+the same pass and can take it first. Dumbrăvița, Ghiroda and Moșnița Nouă all border
+Timișoara and end up in Giroc rather than in the capital, because Giroc is nearer by road.
+
 A commune joins whichever centre reaches it **along the shortest road**. Distance is
 measured between seat villages, on the real road network, and accumulated along the path
 travelled — so a commune three communes away from its centre is charged the full driving

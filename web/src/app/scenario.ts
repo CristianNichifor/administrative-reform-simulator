@@ -18,6 +18,7 @@ export interface Scenario {
 
 const KEYS: Record<keyof Params, string> = {
   x: 'x',
+  rNationalM: 'rn',
   rCapM: 'rc',
   rTownM: 'rt',
   nMin: 'n',
@@ -54,6 +55,7 @@ export function decode(hash: string, lang: Lang): Scenario {
   return {
     params: {
       x: num(q.get(KEYS.x), DEFAULT_PARAMS.x),
+      rNationalM: num(q.get(KEYS.rNationalM), DEFAULT_PARAMS.rNationalM),
       rCapM: num(q.get(KEYS.rCapM), DEFAULT_PARAMS.rCapM),
       rTownM: num(q.get(KEYS.rTownM), DEFAULT_PARAMS.rTownM),
       nMin: num(q.get(KEYS.nMin), DEFAULT_PARAMS.nMin),

@@ -14,11 +14,13 @@
  */
 
 /** Tier order is also sort order: capitals are processed before every other seed. */
-export const TIER_COUNTY_CAPITAL = 0;
-export const TIER_POPULATION = 1;
-export const TIER_PROMOTED = 2;
+export const TIER_NATIONAL_CAPITAL = 0;
+export const TIER_COUNTY_CAPITAL = 1;
+export const TIER_POPULATION = 2;
+export const TIER_PROMOTED = 3;
 
 export type Tier =
+  | typeof TIER_NATIONAL_CAPITAL
   | typeof TIER_COUNTY_CAPITAL
   | typeof TIER_POPULATION
   | typeof TIER_PROMOTED;
@@ -26,6 +28,8 @@ export type Tier =
 export interface Params {
   /** Absorber population threshold. */
   x: number;
+  /** National-capital radius, metres. Bucharest only. */
+  rNationalM: number;
   /** County-capital radius, metres. Must be on the precomputed grid. */
   rCapM: number;
   /** Other-absorber radius, metres. Must be on the precomputed grid. */
@@ -44,13 +48,14 @@ export interface Params {
 
 export const DEFAULT_PARAMS: Params = {
   x: 7_500,
-  rCapM: 15_000,
+  rNationalM: 15_000,
+  rCapM: 10_000,
   rTownM: 10_000,
   nMin: 1,
   rSepM: 15_000,
   minOverlap: 0.1,
   pOrphan: 5_000,
-  pTarget: 0,
+  pTarget: 50_000,
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */
@@ -106,6 +111,12 @@ export interface ModelData {
   /** County index per UAT; interned so comparisons are integer, not string. */
   countyOf: Uint8Array;
   countyCodes: string[];
+  /** UAT index of each county's capital, keyed by county index. */
+  capitalOfCounty: Map<number, number>;
+  /** Index of the Bucharest sector that stands for the city, or -1. */
+  bucharestIndex: number;
+  /** County index for Bucharest, or -1. */
+  bucharestCounty: number;
   /** Neighbours in compressed-row form, ascending within each row. */
   neighbours: Uint16Array;
   /** Road distance in metres to each neighbour, aligned with `neighbours`. */

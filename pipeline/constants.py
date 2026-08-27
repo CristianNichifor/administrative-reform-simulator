@@ -26,7 +26,12 @@ CRS_WGS84: Final = "EPSG:4326"
 ABSORBER_POP_THRESHOLD_DEFAULT: Final = 7_500
 ABSORBER_POP_THRESHOLD_RANGE: Final = (5_000, 50_000)
 
-R_CAP_DEFAULT_M: Final = 15_000
+# Three radii now, because there are three kinds of centre.
+#
+# Bucharest is the only national capital and it cannot cross a county line, so its 15 km
+# reaches nothing but its own sectors — the value is there for completeness, not effect.
+R_NATIONAL_DEFAULT_M: Final = 15_000
+R_CAP_DEFAULT_M: Final = 10_000
 R_TOWN_DEFAULT_M: Final = 10_000
 RADIUS_RANGE_M: Final = (5_000, 30_000)
 
@@ -57,7 +62,7 @@ P_ORPHAN_RANGE: Final = (0, 15_000)
 # different question — "is the result big enough to be worth having" — so it is a separate,
 # clearly-labelled step rather than something folded into the radii, where it would quietly
 # change what a radius means.
-P_TARGET_DEFAULT: Final = 0
+P_TARGET_DEFAULT: Final = 50_000
 P_TARGET_RANGE: Final = (0, 100_000)
 
 # Seed-promotion relaxation (brief §2 step 1): when no candidate satisfies the separation
@@ -128,6 +133,7 @@ BUCHAREST_COUNTY_CODE: Final = "B"
 # Accretion processes tiers in this order, exhausting each before starting the next.
 # The values are the sort keys, so they must stay ordered and must not be reordered
 # casually: changing them changes every conflict resolution in the model.
-TIER_COUNTY_CAPITAL: Final = 0
-TIER_POPULATION: Final = 1
-TIER_PROMOTED: Final = 2
+TIER_NATIONAL_CAPITAL: Final = 0
+TIER_COUNTY_CAPITAL: Final = 1
+TIER_POPULATION: Final = 2
+TIER_PROMOTED: Final = 3

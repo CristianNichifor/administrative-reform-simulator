@@ -26,6 +26,7 @@ const fixturePath = resolve(here, '../../tests/fixtures/parity_cases.json');
 interface FixtureCase {
   params: {
     x: number;
+    r_national_m: number;
     r_cap_m: number;
     r_town_m: number;
     n_min: number;
@@ -63,6 +64,7 @@ function readJson<T>(path: string): T {
 function toParams(p: FixtureCase['params']): Params {
   return {
     x: p.x,
+    rNationalM: p.r_national_m,
     rCapM: p.r_cap_m,
     rTownM: p.r_town_m,
     nMin: p.n_min,

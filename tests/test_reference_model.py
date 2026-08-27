@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 749
+SNAPSHOT_DEFAULT_REGIONS = 182
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -104,11 +104,67 @@ class TestProperties:
         assert first_summary["savings_admin_ron"] == second_summary["savings_admin_ron"]
 
 
+class TestHeldAbsorbers:
+    """Centres bordering their county capital are held back, then judged on their merits."""
+
+    def test_held_centres_are_capital_neighbours_only(self, data, default_run) -> None:
+        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
+
+        result, _ = default_run
+        capitals = {s for s in COUNTY_CAPITAL_SIRUTA if s in data.population}
+        for absorber in result.held:
+            neighbours = set(data.neighbours.get(absorber, ()))
+            assert neighbours & capitals, f"{absorber} was held without bordering a capital"
+
+    def test_a_failed_hold_does_not_survive_alone(self, data, default_run) -> None:
+        """A held centre that could not reach the target is absorbed by someone.
+
+        Usually its county capital, which is the point of the rule. But not always: a
+        neighbouring held centre that *did* reach the target grows in the same pass and can
+        take it first — Dumbrăvița, Ghiroda and Moșnița Nouă all border Timișoara and end up
+        in Giroc rather than in the capital. That is the road-distance rule working, so the
+        assertion is the one that actually holds: it is absorbed, and by something in its
+        own county.
+        """
+        result, _ = default_run
+        for absorber, survived in result.held.items():
+            if survived:
+                continue
+            region = result.region_of[absorber]
+            assert region != absorber, f"{absorber} failed its target but kept its own region"
+            assert data.county[region] == data.county[absorber]
+
+    @pytest.mark.parametrize("target", [0, 25_000, 50_000])
+    def test_no_commune_is_assigned_twice(self, data, target: int) -> None:
+        # The regression this exists for: a held centre absorbed during pass 2 was folded
+        # into its capital again in pass 3, putting its communes in two regions at once.
+        result, summary = run(data, Params(p_target=target))
+        members = [m for region in result.members.values() for m in region]
+        assert len(members) == len(set(members)) == len(data.population)
+        assert summary["regions"] == len(result.members)
+
+
+class TestBucharest:
+    def test_the_sectors_form_one_unit(self, data, default_run) -> None:
+        result, _ = default_run
+        sectors = [s for s in data.population if data.county[s] == "B"]
+        assert len(sectors) == 6
+        assert len({result.region_of[s] for s in sectors}) == 1
+
+    def test_no_sector_is_a_separate_centre(self, data, default_run) -> None:
+        # Six administrations over one continuous city is the duplication being modelled
+        # away, so the sectors never compete as centres.
+        result, _ = default_run
+        sectors = {s for s in data.population if data.county[s] == "B"}
+        assert len(sectors & set(result.seeds)) == 1
+
+
 class TestMinimumTargetPopulation:
-    def test_off_by_default(self, default_run) -> None:
+    def test_on_by_default(self, default_run) -> None:
+        # The target is central to how centres are grown now, not an optional extra: the
+        # smaller ones stop absorbing once they reach it.
         _, summary = default_run
-        assert summary["params"].p_target == 0
-        assert summary["below_target"] == 0
+        assert summary["params"].p_target == 50_000
 
     def test_raising_the_target_never_increases_regions(self, data) -> None:
         counts = [run(data, Params(p_target=t))[1]["regions"] for t in (0, 10_000, 50_000)]
@@ -149,10 +205,11 @@ class TestParameterResponse:
         assert high["seeds"] <= low["seeds"]
 
     def test_disabling_the_orphan_tier_leaves_uats_unmerged(self, data) -> None:
-        # With P_orphan at 0 the orphan step is off entirely, so everything the absorbers
-        # did not reach survives as its own region and the region count rises.
-        with_orphans = run(data, Params())[1]
-        without = run(data, Params(p_orphan=0))[1]
+        # Measured with the population target off, so the orphan tier is the only thing
+        # picking up leftovers. With the target on, consolidation mops up the same communes
+        # afterwards and both settings land on the same count.
+        with_orphans = run(data, Params(p_target=0))[1]
+        without = run(data, Params(p_target=0, p_orphan=0))[1]
         assert without["regions"] > with_orphans["regions"]
         assert without["orphan_regions"] == 0
 

@@ -143,6 +143,25 @@ export function decode(raw: RawPayload): ModelData {
     });
   }
 
+  // The capital of each county, and Bucharest, resolved once. `isCapital` in the payload
+  // marks county capitals; Bucharest is identified by its county rather than by the flag,
+  // because its six sectors are merged into one centre rather than competing as six.
+  const capitalOfCounty = new Map<number, number>();
+  let bucharestIndex = -1;
+  let bucharestCounty = -1;
+  for (let i = 0; i < n; i += 1) {
+    if (attributes.county[i] === 'B') {
+      if (bucharestIndex === -1) {
+        bucharestIndex = i;
+        bucharestCounty = countyOf[i]!;
+      }
+      continue;
+    }
+    if (attributes.isCapital[i] && !capitalOfCounty.has(countyOf[i]!)) {
+      capitalOfCounty.set(countyOf[i]!, i);
+    }
+  }
+
   return {
     manifest,
     attributes,
@@ -154,6 +173,9 @@ export function decode(raw: RawPayload): ModelData {
     operatingRon,
     countyOf,
     countyCodes,
+    capitalOfCounty,
+    bucharestIndex,
+    bucharestCounty,
     neighbours,
     neighbourRoadM,
     neighbourStart,

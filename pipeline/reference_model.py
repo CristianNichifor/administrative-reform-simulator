@@ -40,17 +40,20 @@ import pandas as pd
 
 from pipeline.constants import (
     ABSORBER_POP_THRESHOLD_DEFAULT,
+    BUCHAREST_COUNTY_CODE,
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
     P_TARGET_DEFAULT,
     R_CAP_DEFAULT_M,
+    R_NATIONAL_DEFAULT_M,
     R_SEP_DEFAULT_M,
     R_SEP_RELAXATION_FACTOR,
     R_SEP_RELAXATION_FLOOR_M,
     R_TOWN_DEFAULT_M,
     RADIUS_GRID_M,
     TIER_COUNTY_CAPITAL,
+    TIER_NATIONAL_CAPITAL,
     TIER_POPULATION,
     TIER_PROMOTED,
 )
@@ -61,6 +64,7 @@ from pipeline.paths import PROCESSED_DIR
 @dataclass(frozen=True)
 class Params:
     x: int = ABSORBER_POP_THRESHOLD_DEFAULT
+    r_national_m: int = R_NATIONAL_DEFAULT_M
     r_cap_m: int = R_CAP_DEFAULT_M
     r_town_m: int = R_TOWN_DEFAULT_M
     n_min: int = N_MIN_DEFAULT
@@ -73,6 +77,7 @@ class Params:
         """Radii must land on the precomputed grid; the UI slider snaps to it too."""
         return Params(
             x=self.x,
+            r_national_m=_snap(self.r_national_m),
             r_cap_m=_snap(self.r_cap_m),
             r_town_m=_snap(self.r_town_m),
             n_min=self.n_min,
@@ -113,6 +118,8 @@ class Result:
     seeds: dict[str, int] = field(default_factory=dict)  # seed -> tier
     orphan_regions: set[str] = field(default_factory=set)
     under_seeded_counties: dict[str, int] = field(default_factory=dict)
+    # Centres bordering their county capital, and whether each survived on its own.
+    held: dict[str, bool] = field(default_factory=dict)
     relaxed_counties: dict[str, float] = field(default_factory=dict)
 
 
@@ -240,7 +247,11 @@ def _county_road_distances(data: Data, county: str, sources: list[str]) -> dict[
 
 
 def _tier_radius(params: Params, tier: int) -> int:
-    return params.r_cap_m if tier == TIER_COUNTY_CAPITAL else params.r_town_m
+    if tier == TIER_NATIONAL_CAPITAL:
+        return params.r_national_m
+    if tier == TIER_COUNTY_CAPITAL:
+        return params.r_cap_m
+    return params.r_town_m
 
 
 def _reach(data: Data, params: Params, seed: str, tier: int) -> set[str]:
@@ -253,10 +264,54 @@ def _reach(data: Data, params: Params, seed: str, tier: int) -> set[str]:
     }
 
 
+def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, float]:
+    """What a centre may absorb, and how much of each commune its buffer covers.
+
+    Three independent routes in, because each catches a case the others miss:
+
+      overlap        the ordinary case — enough of the commune lies inside the radius;
+      seat inside    a commune whose territory barely grazes the radius but whose village
+                     is inside it;
+      road distance  a commune reachable within the radius by road that the other two
+                     reject purely because of its shape.
+
+    The third is there because a long, thin commune can sit ten minutes down a direct road
+    and still fail an area test — its area is mostly pointing somewhere else. Shape should
+    not decide who your administration is. The overlap threshold stays as the guard against
+    sliver absorptions it was always meant to be.
+    """
+    radius = _tier_radius(params, tier)
+    admitted = {
+        target: fraction
+        for target, fraction, seat_inside in data.candidacy.get((radius, seed), ())
+        if fraction >= params.min_overlap or seat_inside
+    }
+    for neighbour in data.neighbours.get(seed, ()):
+        if neighbour in admitted:
+            continue
+        if data.county[neighbour] != data.county[seed]:
+            continue
+        step = data.road_distance.get((seed, neighbour), _distance(data, seed, neighbour))
+        if step <= radius:
+            admitted[neighbour] = 0.0
+    return admitted
+
+
 def select_seeds(data: Data, params: Params, result: Result) -> None:
     """Brief §2 step 1: tiers 0 and 1, then greedy max-coverage promotion per county."""
+    # Bucharest is one centre, not six. Its sectors are not candidates and never compete:
+    # six parallel administrations over one continuous city is the duplication this whole
+    # exercise is about, so they are merged rather than modelled as rivals. The lowest
+    # SIRUTA stands for the city, since no "Municipiul Bucuresti" row exists in the UAT set.
+    sectors = sorted(s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE)
+    bucharest = sectors[0] if sectors else None
+    if bucharest is not None:
+        result.seeds[bucharest] = TIER_NATIONAL_CAPITAL
+
     for siruta in data.absorbers:
-        if siruta in COUNTY_CAPITAL_SIRUTA or data.county[siruta] == "B":
+        if data.county[siruta] == BUCHAREST_COUNTY_CODE:
+            continue
+        if siruta in COUNTY_CAPITAL_SIRUTA:
             result.seeds[siruta] = TIER_COUNTY_CAPITAL
         elif data.population[siruta] >= params.x:
             result.seeds[siruta] = TIER_POPULATION
@@ -319,66 +374,125 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
 
 
 def accrete(data: Data, params: Params, result: Result) -> None:
-    """Assign every reachable UAT to the centre nearest to it **by road**.
+    """Grow every centre outward along the road network, in three passes.
 
-    This departs from brief §2 step 4, which resolves conflicts by processing order: county
-    capitals first, then by population. Measured on the real map that rule produces results
-    nobody can defend. Sarichioi shares a road-connected border with Babadag 12 km away and
-    does not border Tulcea at all, yet Tulcea took it — purely because county capitals are
-    processed first and Tulcea's large polygon buffers far enough to reach.
+    **Capitals are not capped.** A county capital absorbs whatever its radius admits. The
+    population target governs the smaller centres only: Tulcea alone is 65,624, already past
+    a 50,000 target, so capping it would have it absorb nothing at all.
 
-    So the region grows as a shortest-path tree instead: a commune joins whichever centre
-    reaches it along the shortest road, measured seat to seat and accumulated along the
-    path actually travelled. That keeps every property the wave version had — a region is
-    connected, never leapfrogs, never crosses a county line — while making "why this centre
-    and not that one" answerable with a number rather than with a processing order.
+    **Smaller centres stop at the target.** Once a centre has gathered enough people it
+    stops taking more, which leaves something for its neighbours instead of letting whoever
+    is nearest to the most communes sweep the county.
 
-    Ties break on centre tier, then population descending, then SIRUTA, so the result stays
-    identical between runs.
+    **A centre bordering its county capital is held back.** Otherwise the capital simply
+    eats it on the first step, and a perfectly good town disappears because of where it
+    happens to sit. It is left alone while everyone else grows, then asked whether it can
+    still reach the target from what remains. If it can, it stays a centre. If it cannot, it
+    folds into the capital — the outcome it was being protected from, but only once that has
+    been shown to be the right answer rather than an accident of ordering.
     """
-    # (distance, tier, -population, siruta, uat) — the tuple *is* the tie-break rule.
-    heap: list[tuple[float, int, int, str, str]] = []
-    for seed in sorted(result.seeds):
-        tier = result.seeds[seed]
-        heapq.heappush(heap, (0.0, tier, -data.population[seed], seed, seed))
+    held = _held_absorbers(data, result)
+    result.held = dict.fromkeys(sorted(held), False)
 
-    # Candidacy per centre, resolved once: which UATs its radius admits at all.
-    eligible: dict[str, dict[str, float]] = {}
-    for seed, tier in result.seeds.items():
-        entries = data.candidacy.get((_tier_radius(params, tier), seed), ())
-        eligible[seed] = {
-            target: fraction
-            for target, fraction, seat_inside in entries
-            if fraction >= params.min_overlap or seat_inside
-        }
+    # Pass 1: everything except the held centres.
+    _grow(data, params, result, sources=[s for s in result.seeds if s not in held], blocked=held)
+
+    # Pass 2: each held centre tries to reach the target from what is left.
+    for absorber in sorted(held, key=lambda a: (-data.population[a], a)):
+        if absorber in result.region_of:
+            continue
+        _grow(data, params, result, sources=[absorber], blocked=set())
+        reached = sum(data.population[m] for m in result.members.get(absorber, [absorber]))
+        result.held[absorber] = reached >= params.p_target
+
+    # Pass 3: a held centre that could not reach the target folds into its capital, taking
+    # whatever it did gather with it. Both are adjacent to the capital, so the capital's
+    # region stays in one piece.
+    for absorber, survived in result.held.items():
+        if survived:
+            continue
+        # It may no longer be its own region: another held centre grown earlier in pass 2
+        # can have absorbed it. Folding it again would assign its communes twice.
+        if result.region_of.get(absorber) != absorber:
+            continue
+        capital = _county_capital(data, data.county[absorber])
+        if capital is None or capital not in result.members:
+            continue
+        for member in result.members.pop(absorber):
+            result.region_of[member] = capital
+            result.members[capital].append(member)
+        result.seeds.pop(absorber, None)
+
+    for absorber in result.members:
+        result.members[absorber].sort(key=lambda m: (-data.population[m], m))
+
+
+def _county_capital(data: Data, county: str) -> str | None:
+    for siruta, code in COUNTY_CAPITAL_SIRUTA.items():
+        if code == county and siruta in data.population:
+            return siruta
+    return None
+
+
+def _held_absorbers(data: Data, result: Result) -> set[str]:
+    """Centres that share a border with their own county capital."""
+    held: set[str] = set()
+    for absorber, tier in result.seeds.items():
+        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
+            continue
+        capital = _county_capital(data, data.county[absorber])
+        if capital is None:
+            continue
+        if capital in data.neighbours.get(absorber, ()):
+            held.add(absorber)
+    return held
+
+
+def _grow(
+    data: Data,
+    params: Params,
+    result: Result,
+    sources: list[str],
+    blocked: set[str],
+) -> None:
+    """Multi-source shortest-path growth along roads, from `sources`.
+
+    Communes are claimed in order of road distance from whichever centre reaches them
+    first, so the assignment answers "which centre is actually nearest" rather than "which
+    centre was processed first". Ties break on tier, then population, then SIRUTA.
+    """
+    heap: list[tuple[float, int, int, str, str]] = []
+    for seed in sorted(sources):
+        heapq.heappush(heap, (0.0, result.seeds[seed], -data.population[seed], seed, seed))
+
+    eligible = {seed: _eligible(data, params, seed, result.seeds[seed]) for seed in sources}
+    gathered = {seed: 0 for seed in sources}
 
     while heap:
         distance, tier, neg_population, absorber, uat = heapq.heappop(heap)
-        if uat in result.region_of:
+        if uat in result.region_of or uat in blocked:
             continue
+
         if uat != absorber:
             if data.county[uat] != data.county[absorber]:
                 continue
             if uat not in eligible[absorber]:
                 continue
+            # Capitals take whatever their radius admits; everyone else stops once they
+            # have enough people, leaving the rest to their neighbours.
+            capped = tier not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
+            if capped and params.p_target > 0 and gathered[absorber] >= params.p_target:
+                continue
 
         result.region_of[uat] = absorber
         result.members.setdefault(absorber, []).append(uat)
+        gathered[absorber] += data.population[uat]
 
         for neighbour in data.neighbours.get(uat, ()):
-            if neighbour in result.region_of:
+            if neighbour in result.region_of or neighbour in blocked:
                 continue
-            step = data.road_distance.get(
-                (uat, neighbour),
-                # No routed distance: the border is road-crossing but the router could not
-                # find a path. Straight line is a floor on the real distance, so it never
-                # makes a centre look closer than it is by more than the detour.
-                _distance(data, uat, neighbour),
-            )
+            step = data.road_distance.get((uat, neighbour), _distance(data, uat, neighbour))
             heapq.heappush(heap, (distance + step, tier, neg_population, absorber, neighbour))
-
-    for absorber in result.members:
-        result.members[absorber].sort(key=lambda m: (-data.population[m], m))
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:

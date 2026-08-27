@@ -21,6 +21,8 @@ export interface Strings {
 
   x: string;
   xHelp: string;
+  rNational: string;
+  rNationalHelp: string;
   rCap: string;
   rCapHelp: string;
   rTown: string;
@@ -111,6 +113,8 @@ const ro: Strings = {
 
   x: 'Prag populație absorbant',
   xHelp: 'Localitățile peste acest prag devin centre de absorbție.',
+  rNational: 'Rază capitală de țară',
+  rNationalHelp: 'Cât de departe ajunge Bucureștiul. Nu poate traversa limita de județ, deci în practică acoperă doar sectoarele.',
   rCap: 'Rază reședință de județ',
   rCapHelp: 'Cât de departe ajunge o reședință de județ.',
   rTown: 'Rază alte centre',
@@ -211,6 +215,8 @@ const en: Strings = {
 
   x: 'Absorber population threshold',
   xHelp: 'Localities above this become absorbing centres.',
+  rNational: 'National-capital radius',
+  rNationalHelp: 'How far Bucharest reaches. It cannot cross a county line, so in practice this covers its own sectors.',
   rCap: 'County-capital radius',
   rCapHelp: 'How far a county capital reaches.',
   rTown: 'Other-absorber radius',
