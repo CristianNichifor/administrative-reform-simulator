@@ -29,51 +29,51 @@
     30000
   ],
   "edgeCount": 5902,
-  "candidacyCount": 213633,
+  "candidacyCount": 215572,
   "candidacyByRadius": {
     "5000": {
       "start": 0,
-      "count": 6702
+      "count": 6756
     },
     "7500": {
-      "start": 6702,
-      "count": 8977
+      "start": 6756,
+      "count": 9073
     },
     "10000": {
-      "start": 15679,
-      "count": 11366
+      "start": 15829,
+      "count": 11484
     },
     "12500": {
-      "start": 27045,
-      "count": 13976
+      "start": 27313,
+      "count": 14142
     },
     "15000": {
-      "start": 41021,
-      "count": 16604
+      "start": 41455,
+      "count": 16788
     },
     "17500": {
-      "start": 57625,
-      "count": 19273
+      "start": 58243,
+      "count": 19473
     },
     "20000": {
-      "start": 76898,
-      "count": 22033
+      "start": 77716,
+      "count": 22244
     },
     "22500": {
-      "start": 98931,
-      "count": 24830
+      "start": 99960,
+      "count": 25046
     },
     "25000": {
-      "start": 123761,
-      "count": 27419
+      "start": 125006,
+      "count": 27646
     },
     "27500": {
-      "start": 151180,
-      "count": 30013
+      "start": 152652,
+      "count": 30243
     },
     "30000": {
-      "start": 181193,
-      "count": 32440
+      "start": 182895,
+      "count": 32677
     }
   }
 }

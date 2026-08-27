@@ -37,6 +37,8 @@ import pandas as pd
 
 from pipeline.build_geometry import Check, Report, write_report
 from pipeline.constants import (
+    BUCHAREST_COUNTY_CODE,
+    BUCHAREST_RING_COUNTY,
     CRS_STEREO70,
     OVERLAP_QUANTISATION_DECIMALS,
     POTENTIAL_ABSORBER_POP_FLOOR,
@@ -175,21 +177,33 @@ def build_grid(
     # membership directly, so storing it wastes space and invites double-counting.
     grid = grid[grid["absorber_siruta"] != grid["uat_siruta"]]
 
-    # Regions never cross county lines (brief §8), so cross-county pairs can never become
-    # candidates and are dropped here rather than filtered on every model run.
+    # Regions cross county lines in exactly one place — Bucharest and its Ilfov ring — so
+    # every other cross-county pair is dropped here rather than filtered on every model run.
+    #
+    # Keeping the Bucharest pairs is what makes that exception mean anything. Without them
+    # the only Ilfov communes the city could see were those directly bordering a sector,
+    # because the model's adjacency fallback is the sole remaining route in: Cernica borders
+    # Pantelimon and Glina, both already part of the city, and still could not be absorbed.
     county = uats.set_index("siruta")["county_code"]
-    same_county = (
-        county.loc[grid["absorber_siruta"]].to_numpy() == county.loc[grid["uat_siruta"]].to_numpy()
+    absorber_county = county.loc[grid["absorber_siruta"]].to_numpy()
+    uat_county = county.loc[grid["uat_siruta"]].to_numpy()
+    same_county = absorber_county == uat_county
+    bucharest_ring = (absorber_county == BUCHAREST_COUNTY_CODE) & (
+        uat_county == BUCHAREST_RING_COUNTY
     )
-    dropped_cross = int((~same_county).sum())
-    grid = grid[same_county]
+    keep = same_county | bucharest_ring
+    dropped_cross = int((~keep).sum())
+    kept_ring = int(bucharest_ring.sum())
+    grid = grid[keep]
 
     report.add(
         Check(
             "cross_county_pairs_dropped",
-            True,
+            kept_ring > 0,
             f"{dropped_cross:,} candidate pairs dropped because the model forbids "
-            "cross-county merges",
+            f"cross-county merges; {kept_ring:,} Bucharest-to-Ilfov pairs kept, the one "
+            "county line a unit may cross",
+            fatal=kept_ring == 0,
         )
     )
 

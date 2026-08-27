@@ -43,7 +43,12 @@ duplication this exercise is about.
 county boundary is absolute. Around the capital it runs through continuous built-up area:
 Otopeni, Voluntari, Pantelimon and Popești-Leordeni are the city's suburbs in every
 practical sense, and a model that stops at the line describes an administration rather than
-a city. The resulting unit is 2.04 million across 19 UATs, 13 of them in Ilfov.
+a city. The resulting unit is 2.18 million across 35 UATs, 29 of them in Ilfov.
+
+The candidacy grid keeps the Bucharest-to-Ilfov pairs for the same reason. Dropping every
+cross-county pair left the city able to see only the communes directly bordering a sector,
+so it stopped one ring out: Cernica borders Pantelimon and Glina, both already part of the
+city, and still could not be absorbed.
 
 The city's reach is the union of its six sectors', not Sector 1's alone. Candidacy is
 precomputed per UAT and Sector 1's buffer points north-west, so treating it as the city gave
@@ -126,8 +131,8 @@ which is where a second centre is actually useful.
 A stood-down centre is *reserved* for its capital, not handed to it. Growth still has to
 arrive over the capital's own territory, which is what keeps every unit in one piece:
 assigning Cumpăna directly produced a Constanța in two disconnected halves. At the default
-settings 102 centres are stood down and 1 ends up standing alone, because the capital
-reserved for it never reached it.
+settings 111 centres are stood down, and every one of them is reached by the capital
+reserved for it.
 
 A commune joins whichever centre reaches it **along the shortest road**. Distance is
 measured between seat villages, on the real road network, and accumulated along the path
@@ -379,7 +384,12 @@ care este vorba aici.
 limita de județ este absolută. În jurul capitalei ea trece prin construit continuu: Otopeni,
 Voluntari, Pantelimon și Popești-Leordeni sunt suburbiile orașului în orice sens practic, iar
 un model care se oprește la limită descrie o administrație, nu un oraș. Unitatea rezultată
-are 2,04 milioane de locuitori în 19 UAT-uri, dintre care 13 în Ilfov.
+are 2,18 milioane de locuitori în 35 de UAT-uri, dintre care 29 în Ilfov.
+
+Grila de candidatură păstrează perechile București–Ilfov din același motiv. Eliminarea
+tuturor perechilor inter-județene lăsa orașul să vadă doar comunele cu graniță directă la un
+sector, deci se oprea la primul inel: Cernica se învecinează cu Pantelimon și Glina, ambele
+deja parte din oraș, și tot nu putea fi absorbită.
 
 Raza orașului este reuniunea razelor celor șase sectoare, nu doar a Sectorului 1. Candidatura
 este precalculată per UAT, iar tamponul Sectorului 1 este orientat spre nord-vest, așa că
@@ -447,8 +457,7 @@ unde un al doilea centru chiar folosește.
 Un centru oprit este *rezervat* reședinței, nu atribuit direct. Creșterea trebuie să ajungă
 la el pe teritoriul propriu al reședinței, ceea ce menține fiecare unitate dintr-o singură
 bucată: atribuirea directă a Cumpenei producea o Constanță în două jumătăți neconectate. La
-setările implicite 102 centre sunt oprite, iar 1 rămâne pe cont propriu, pentru că reședința
-rezervată lui nu a ajuns până la el.
+setările implicite 111 centre sunt oprite, iar fiecare este ajuns de reședința rezervată lui.
 
 **Fiecare unitate poartă numele celei mai importante localități din ea.** Ce comune ajung
 împreună este decis de drumuri și raze; aici se stabilește doar care membru dă sediul. Este
