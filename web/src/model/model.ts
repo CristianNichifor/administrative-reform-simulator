@@ -30,6 +30,14 @@ import {
 
 const NO_REGION = 0xffff;
 
+/** Lexicographic compare over equal-length numeric tuples. */
+function lessThan(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return a[i]! < b[i]!;
+  }
+  return false;
+}
+
 function tierRadius(params: Params, tier: number): number {
   if (tier === TIER_NATIONAL_CAPITAL) return params.rNationalM;
   if (tier === TIER_COUNTY_CAPITAL) return params.rCapM;
@@ -204,7 +212,40 @@ function sliceFor(data: ModelData, params: Params, tier: number): RadiusSlice | 
  * Confined to the county because a region may never cross a county line, so a route that
  * leaves and comes back is not one this model would ever travel.
  */
+/**
+ * Road distance from one seat to every commune in its county, memoised per dataset.
+ *
+ * The answer depends only on the road graph, never on the current assignment, so it is the
+ * same every time it is asked — and it is asked a great deal: consolidation asks per merge
+ * candidate, the rebalancing pass asks per unit per sweep, and the settle loop repeats both.
+ * Recomputing it took the model to 353 ms against a 150 ms budget. Cached, the same work
+ * happens once per seat for the life of the payload.
+ *
+ * Only the single-source case is cached; multi-source calls are rare and are passed through.
+ */
+const singleSourceCache = new WeakMap<ModelData, Map<number, Map<number, number>>>();
+
 function countyRoadDistances(
+  data: ModelData,
+  county: number,
+  sources: number[],
+): Map<number, number> {
+  if (sources.length === 1) {
+    let byCounty = singleSourceCache.get(data);
+    if (!byCounty) {
+      byCounty = new Map();
+      singleSourceCache.set(data, byCounty);
+    }
+    const hit = byCounty.get(sources[0]!);
+    if (hit) return hit;
+    const computed = countyRoadDistancesUncached(data, county, sources);
+    byCounty.set(sources[0]!, computed);
+    return computed;
+  }
+  return countyRoadDistancesUncached(data, county, sources);
+}
+
+function countyRoadDistancesUncached(
   data: ModelData,
   county: number,
   sources: number[],
@@ -401,7 +442,6 @@ function selectSeeds(data: ModelData, params: Params): {
         seedsHere.length > 0 ? countyRoadDistances(data, county, seedsHere) : null;
 
       let bestIndex = -1;
-      let bestGain = -1;
       let bestRank = 99;
       let bestPop = -1;
 
@@ -412,27 +452,21 @@ function selectSeeds(data: ModelData, params: Params): {
           if ((separation.get(candidate) ?? Infinity) < rSep) continue;
         }
 
-        let gain = 0;
-        for (const u of reach(data, params, candidate, TIER_PROMOTED)) {
-          if (covered[u] === 0) gain += data.population[u]!;
-        }
-
-        // Greedy max-coverage, then population descending, then index (SIRUTA) ascending.
-        // Ranking by raw population instead would cluster seeds in whichever corner of the
-        // county is densest, which is precisely what this step exists to prevent.
-        // Coverage first, then administrative standing, then size. Without the standing
-        // term a commune promoted for its coverage outranks a town that was never promoted.
+        // Walk down from the threshold: the next centre is the one whose population is
+        // closest to it from below. This step exists because a county came up short, and
+        // the question it answers is "who is the next most plausible town", which is about
+        // size. Maximising uncovered population reached answers "who would sweep up the
+        // most", and that picked scattered communes over the obvious town — Curcani, a
+        // commune of 5,301, over Oras Budesti at 7,126.
         const pop = data.population[candidate]!;
         const rank = data.attributes.adminRank[candidate]!;
         if (
           bestIndex === -1 ||
-          gain > bestGain ||
-          (gain === bestGain && rank < bestRank) ||
-          (gain === bestGain && rank === bestRank && pop > bestPop) ||
-          (gain === bestGain && rank === bestRank && pop === bestPop && candidate < bestIndex)
+          pop > bestPop ||
+          (pop === bestPop && rank < bestRank) ||
+          (pop === bestPop && rank === bestRank && candidate < bestIndex)
         ) {
           bestIndex = candidate;
-          bestGain = gain;
           bestRank = rank;
           bestPop = pop;
         }
@@ -527,125 +561,114 @@ function grow(
 ): void {
   const eligible = new Map<number, Map<number, number>>();
   const gathered = new Map<number, number>();
-  for (const seed of sources) {
+  // Accumulated road distance from each absorber to each commune it holds.
+  const reached = new Map<number, Map<number, number>>();
+
+  for (const seed of [...sources].sort((a, b) => a - b)) {
     eligible.set(seed, eligibleFor(data, params, seed, tierOf[seed]!));
     gathered.set(seed, 0);
+    reached.set(seed, new Map());
+    if (regionOf[seed] !== NO_REGION || blocked.has(seed)) continue;
+    regionOf[seed] = seed;
+    members.set(seed, [...(members.get(seed) ?? []), seed]);
+    gathered.set(seed, gathered.get(seed)! + data.population[seed]!);
+    reached.get(seed)!.set(seed, 0);
+    const tier = tierOf[seed]!;
+    reasonOf[seed] =
+      tier === TIER_NATIONAL_CAPITAL || tier === TIER_COUNTY_CAPITAL
+        ? REASON.CENTRE_CAPITAL
+        : tier === TIER_POPULATION
+          ? REASON.CENTRE_THRESHOLD
+          : REASON.CENTRE_PROMOTED;
   }
 
-  // Binary heap keyed on the whole tie-break tuple: distance, then tier, then population
-  // descending, then index. Sorting an array per push would dominate the frame budget.
-  const hr: number[] = [];
-  const hd: number[] = [];
-  const ha: number[] = [];
-  const hu: number[] = [];
-  const better = (i: number, j: number): boolean => {
-    // Ring first: every centre takes its first ring before any centre takes a second.
-    // Ordered by distance alone, a large centre reached past a small one's own doorstep and
-    // the small one starved — 56 units under 25,000 sat beside units over 55,000 with
-    // nothing left to take. Within a ring the nearest by road still wins.
-    if (hr[i] !== hr[j]) return hr[i]! < hr[j]!;
-    if (hd[i] !== hd[j]) return hd[i]! < hd[j]!;
-    const ai = ha[i]!;
-    const aj = ha[j]!;
-    if (tierOf[ai] !== tierOf[aj]) return tierOf[ai]! < tierOf[aj]!;
-    if (data.population[ai] !== data.population[aj]) return data.population[ai]! > data.population[aj]!;
-    if (ai !== aj) return ai < aj;
-    return hu[i]! < hu[j]!;
-  };
-  const swap = (i: number, j: number): void => {
-    [hr[i], hr[j]] = [hr[j]!, hr[i]!];
-    [hd[i], hd[j]] = [hd[j]!, hd[i]!];
-    [ha[i], ha[j]] = [ha[j]!, ha[i]!];
-    [hu[i], hu[j]] = [hu[j]!, hu[i]!];
-  };
-  const push = (r: number, d: number, a: number, u: number): void => {
-    hr.push(r); hd.push(d); ha.push(a); hu.push(u);
-    let i = hd.length - 1;
-    while (i > 0) {
-      const parent = (i - 1) >> 1;
-      if (!better(i, parent)) break;
-      swap(i, parent);
-      i = parent;
-    }
-  };
-  const pop = (): [number, number, number, number] => {
-    const top: [number, number, number, number] = [hr[0]!, hd[0]!, ha[0]!, hu[0]!];
-    swap(0, hd.length - 1);
-    hr.pop(); hd.pop(); ha.pop(); hu.pop();
-    let i = 0;
-    for (;;) {
-      const l = 2 * i + 1;
-      const r = l + 1;
-      let best = i;
-      if (l < hd.length && better(l, best)) best = l;
-      if (r < hd.length && better(r, best)) best = r;
-      if (best === i) break;
-      swap(i, best);
-      i = best;
-    }
-    return top;
-  };
+  const isCapped = (absorber: number): boolean => !isCapitalTier(tierOf[absorber]!);
 
-  for (const seed of [...sources].sort((a, b) => a - b)) push(0, 0, seed, seed);
-
-  while (hd.length > 0) {
-    const [ring, distance, absorber, uat] = pop();
-    if (regionOf[uat] !== NO_REGION || blocked.has(uat)) continue;
-    const tier = tierOf[absorber]!;
-
-    if (uat !== absorber) {
-      if (!mayAbsorb(data, absorber, uat)) continue;
-      // A stood-down centre is reserved for the capital that shadows it. Reserved rather
-      // than assigned outright: Cumpana does not touch Constanta, so assigning it directly
-      // produced a unit in two disconnected pieces. Growth has to arrive over its own
-      // territory, which keeps every unit contiguous.
-      const reserved = reservedFor.get(uat);
-      if (reserved !== undefined && reserved !== absorber) continue;
-      // The cap is checked when claiming, not only when expanding. Stopping expansion at
-      // the cap still let the last commune inside it push a neighbour one long edge
-      // further, and that neighbour was claimed unchecked — Reșița reached 72.9 km against
-      // a 35 km cap that way.
-      if (params.maxRoadM > 0 && distance > params.maxRoadM) continue;
+  for (;;) {
+    // Every bid in this ring, collected before any of them is settled, so no centre gains
+    // an advantage from being processed earlier.
+    const bids = new Map<number, Map<number, number>>();
+    for (const absorber of [...sources].sort((a, b) => a - b)) {
+      const capped = isCapped(absorber);
+      const have = gathered.get(absorber)!;
+      if (capped && params.pTarget > 0 && have >= params.pTarget) continue;
+      // A centre still short of the target reaches past its radius: the radius says how far
+      // it pulls while it has a choice, not what stops it being viable.
+      const short = capped && params.pTarget > 0 && have < params.pTarget;
       const admitted = eligible.get(absorber)!;
-      const capped = !isCapitalTier(tier);
-      // A centre still short of the target keeps going past its radius. The radius says how
-      // far a centre pulls while it still has a choice; it should not be what stops a centre
-      // that has not yet gathered enough people to be worth creating. With the radius
-      // binding, small centres ran out of eligible neighbours at 10 km and stopped at 9,000
-      // beside a neighbour of 141,000. The road cap still bounds it.
-      const short = capped && params.pTarget > 0 && gathered.get(absorber)! < params.pTarget;
-      if (!admitted.has(uat) && !short) continue;
-      if (capped && params.pTarget > 0 && gathered.get(absorber)! >= params.pTarget) continue;
-      const pct = admitted.get(uat)!;
+      const mine = reached.get(absorber)!;
+      for (const held of members.get(absorber) ?? []) {
+        const base = mine.get(held);
+        if (base === undefined) continue;
+        if (params.maxRoadM > 0 && base >= params.maxRoadM) continue;
+        for (let e = data.neighbourStart[held]!; e < data.neighbourStart[held + 1]!; e += 1) {
+          const nb = data.neighbours[e]!;
+          if (regionOf[nb] !== NO_REGION || blocked.has(nb)) continue;
+          if (!mayAbsorb(data, absorber, nb)) continue;
+          const reserved = reservedFor.get(nb);
+          if (reserved !== undefined && reserved !== absorber) continue;
+          if (!admitted.has(nb) && !short) continue;
+          const reach = base + data.neighbourRoadM[e]!;
+          if (params.maxRoadM > 0 && reach > params.maxRoadM) continue;
+          let row = bids.get(nb);
+          if (!row) {
+            row = new Map();
+            bids.set(nb, row);
+          }
+          const prev = row.get(absorber);
+          if (prev === undefined || reach < prev) row.set(absorber, reach);
+        }
+      }
+    }
+
+    if (bids.size === 0) return;
+
+    // A contested commune goes to a centre that still needs it: one that would pass the
+    // target by taking it concedes to one that would not. Then nearest by road, then tier,
+    // then the larger centre.
+    const won = new Map<number, number>();
+    for (const uat of [...bids.keys()].sort((a, b) => a - b)) {
+      const row = bids.get(uat)!;
+      const keyOf = (bidder: number): number[] => {
+        const overshoot =
+          isCapped(bidder) &&
+          params.pTarget > 0 &&
+          gathered.get(bidder)! + data.population[uat]! > params.pTarget;
+        return [
+          overshoot ? 1 : 0,
+          row.get(bidder)!,
+          tierOf[bidder]!,
+          -data.population[bidder]!,
+          bidder,
+        ];
+      };
+      let best = -1;
+      let bestKey: number[] | null = null;
+      for (const bidder of [...row.keys()].sort((a, b) => a - b)) {
+        const key = keyOf(bidder);
+        if (bestKey === null || lessThan(key, bestKey)) {
+          bestKey = key;
+          best = bidder;
+        }
+      }
+      won.set(uat, best);
+    }
+
+    for (const uat of [...won.keys()].sort((a, b) => a - b)) {
+      const absorber = won.get(uat)!;
+      regionOf[uat] = absorber;
+      members.set(absorber, [...(members.get(absorber) ?? []), uat]);
+      reached.get(absorber)!.set(uat, bids.get(uat)!.get(absorber)!);
+      const admitted = eligible.get(absorber)!;
+      const pct = admitted.get(uat) ?? 0;
       overlapOf[uat] = pct;
       reasonOf[uat] =
         pct >= Math.round(params.minOverlap * 100) ? REASON.ABSORBED_OVERLAP : REASON.ABSORBED_SEAT;
-    } else {
-      reasonOf[absorber] =
-        tier === TIER_NATIONAL_CAPITAL || tier === TIER_COUNTY_CAPITAL
-          ? REASON.CENTRE_CAPITAL
-          : tier === TIER_POPULATION
-            ? REASON.CENTRE_THRESHOLD
-            : REASON.CENTRE_PROMOTED;
     }
-
-    regionOf[uat] = absorber;
-    let list = members.get(absorber);
-    if (!list) { list = []; members.set(absorber, list); }
-    list.push(uat);
-    gathered.set(absorber, gathered.get(absorber)! + data.population[uat]!);
-
-    if (params.maxRoadM > 0 && distance >= params.maxRoadM) continue;
-
-    for (let e = data.neighbourStart[uat]!; e < data.neighbourStart[uat + 1]!; e += 1) {
-      const nb = data.neighbours[e]!;
-      if (regionOf[nb] !== NO_REGION || blocked.has(nb)) continue;
-      // Growth never routes anywhere the unit could not hold: a path that leaves and comes
-      // back is not a path it occupies, and counting it made the distance cap unenforceable.
-      if (!mayAbsorb(data, absorber, nb)) continue;
-      const next = distance + data.neighbourRoadM[e]!;
-      if (params.maxRoadM > 0 && next > params.maxRoadM) continue;
-      push(ring + 1, next, absorber, nb);
+    // Populations move only between rounds, so every bid in a ring was judged against the
+    // same state.
+    for (const [uat, absorber] of won) {
+      gathered.set(absorber, gathered.get(absorber)! + data.population[uat]!);
     }
   }
 }
@@ -977,7 +1000,10 @@ function reseatUnits(
     if (newSeat === oldSeat) continue;
     for (const m of list) regionOf[m] = newSeat;
     if (orphanSeats.delete(oldSeat)) orphanSeats.add(newSeat);
-    if (tierOf[oldSeat] !== -1 && tierOf[newSeat] === -1) {
+    // Mirrors the reference exactly: the tier moves with the seat, overwriting whatever the
+    // new seat had. Guarding on "only if the new seat has none" left one extra centre in the
+    // count whenever both were seeds, which parity catches as an off-by-one in `seeds`.
+    if (tierOf[oldSeat] !== -1) {
       tierOf[newSeat] = tierOf[oldSeat]!;
       tierOf[oldSeat] = -1;
     }
@@ -1148,6 +1174,103 @@ export function mergeBlocker(
   return best > params.maxRoadM ? { kind: 'cap', metres: best } : null;
 }
 
+const REBALANCE_SWEEPS = 8;
+const SETTLE_ROUNDS = 6;
+
+/** Whether a set of communes forms one piece over the road-connected graph. */
+function isConnected(data: ModelData, group: number[]): boolean {
+  const inside = new Set(group);
+  const seen = new Set([group[0]!]);
+  const stack = [group[0]!];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (let e = data.neighbourStart[current]!; e < data.neighbourStart[current + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (inside.has(nb) && !seen.has(nb)) {
+        seen.add(nb);
+        stack.push(nb);
+      }
+    }
+  }
+  return seen.size === inside.size;
+}
+
+/**
+ * Move a commune to the neighbouring unit whose seat is actually nearer by road.
+ *
+ * Growth settles a commune against the state at the moment it was reached. By the time
+ * everything has grown, merged and been re-seated, some communes sit in a unit whose seat is
+ * further away than a neighbouring unit's — the thing a resident notices first, and the thing
+ * that produces ragged edges.
+ *
+ * Every move satisfies all of: the commune borders the unit it joins and may legally join it;
+ * that seat is strictly nearer by road and within the cap; the unit it leaves stays in one
+ * piece; and the unit it leaves does not drop below the target if it was above it. A tidier
+ * edge is not worth breaking a unit that was already viable.
+ */
+function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): number {
+  let movedTotal = 0;
+  for (let sweep = 0; sweep < REBALANCE_SWEEPS; sweep += 1) {
+    const members = new Map<number, number[]>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const seat = regionOf[i]!;
+      const list = members.get(seat);
+      if (list) list.push(i);
+      else members.set(seat, [i]);
+    }
+    const reachCache = new Map<number, Map<number, number>>();
+    const reachFrom = (seat: number): Map<number, number> => {
+      let cached = reachCache.get(seat);
+      if (!cached) {
+        cached = countyRoadDistances(data, data.countyOf[seat]!, [seat]);
+        reachCache.set(seat, cached);
+      }
+      return cached;
+    };
+
+    let moved = 0;
+    for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
+      const here = regionOf[siruta]!;
+      if (here === siruta) continue;
+      const hereDistance = reachFrom(here).get(siruta) ?? Infinity;
+
+      let target = -1;
+      let targetDistance = Infinity;
+      for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
+        const there = regionOf[data.neighbours[e]!]!;
+        if (there === here || !mayAbsorb(data, there, siruta)) continue;
+        const thereDistance = reachFrom(there).get(siruta) ?? Infinity;
+        if (!(thereDistance < hereDistance)) continue;
+        if (params.maxRoadM > 0 && thereDistance > params.maxRoadM) continue;
+        if (thereDistance < targetDistance || (thereDistance === targetDistance && there < target)) {
+          target = there;
+          targetDistance = thereDistance;
+        }
+      }
+      if (target === -1) continue;
+
+      const current = members.get(here)!;
+      const remaining = current.filter((m) => m !== siruta);
+      if (remaining.length === 0 || !isConnected(data, remaining)) continue;
+      if (params.pTarget > 0) {
+        let before = 0;
+        for (const m of current) before += data.population[m]!;
+        const after = before - data.population[siruta]!;
+        if (before >= params.pTarget && after < params.pTarget) continue;
+      }
+
+      members.set(here, remaining);
+      members.get(target)!.push(siruta);
+      regionOf[siruta] = target;
+      moved += 1;
+    }
+
+    movedTotal += moved;
+    if (moved === 0) break;
+  }
+  return movedTotal;
+}
+
 export function runModel(data: ModelData, params: Params, pins: Pin[] = []): ModelResult {
   const regionOf = new Uint16Array(data.uatCount).fill(NO_REGION);
   const reasonOf = new Uint8Array(data.uatCount).fill(REASON.UNCHANGED);
@@ -1172,12 +1295,25 @@ export function runModel(data: ModelData, params: Params, pins: Pin[] = []): Mod
     if (regionOf[i] === NO_REGION) unassigned += 1;
   }
 
-  // Twice, and the order matters. Consolidation decides which units merge by measuring
-  // road distance from the seat that survives, so it has to see the real seats. Merging
-  // changes the membership, so the seats are settled again on the result.
+  // Consolidation judges a merge by road distance from the seat that survives, so it has to
+  // see the real seats first.
   reseatUnits(data, params, regionOf, tierOf, orphanSeats);
-  const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
-  reseatUnits(data, params, regionOf, tierOf, orphanSeats);
+  let belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
+
+  // Then ask, of the finished map, whether any commune is in the wrong unit.
+  rebalance(data, params, regionOf);
+
+  // Re-seat and consolidate until they agree: re-seating moves the seat a merge was judged
+  // from, which can make a refused merge feasible. The loop ends when a pass merges nothing.
+  for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
+    reseatUnits(data, params, regionOf, tierOf, orphanSeats);
+    const before = new Set<number>();
+    for (let i = 0; i < data.uatCount; i += 1) before.add(regionOf[i]!);
+    belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
+    const after = new Set<number>();
+    for (let i = 0; i < data.uatCount; i += 1) after.add(regionOf[i]!);
+    if (after.size === before.size) break;
+  }
 
   const { pinsApplied, pinsRejected, splitUnits } = applyPins(
     data, regionOf, reasonOf, tierOf, orphanSeats, params, pins,

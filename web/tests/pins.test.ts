@@ -126,13 +126,23 @@ describe('what a pin is allowed to break', () => {
   it('re-elects a seat for the unit a pinned-away seat leaves behind', () => {
     const base = runModel(data, DEFAULT_PARAMS);
     const bucharest = base.regionOf[find('SECTORUL 1', 'B')]!;
-    // Snagov seats a unit of several communes; pin the seat itself into Bucharest.
-    const snagov = find('SNAGOV', 'IF');
-    expect(base.regionOf[snagov]).toBe(snagov);
-    const others = [];
-    for (let i = 0; i < data.uatCount; i += 1) {
-      if (i !== snagov && base.regionOf[i] === snagov) others.push(i);
+    // Any Ilfov unit of several communes will do; naming one pins the test to a map that
+    // keeps changing. Pin its seat into Bucharest and check the rest stay together.
+    let snagov = -1;
+    const others: number[] = [];
+    for (let seat = 0; seat < data.uatCount && snagov === -1; seat += 1) {
+      if (base.regionOf[seat] !== seat || seat === bucharest) continue;
+      if (data.attributes.county[seat] !== 'IF') continue;
+      const rest: number[] = [];
+      for (let i = 0; i < data.uatCount; i += 1) {
+        if (i !== seat && base.regionOf[i] === seat) rest.push(i);
+      }
+      if (rest.length > 0) {
+        snagov = seat;
+        others.push(...rest);
+      }
     }
+    expect(snagov).toBeGreaterThanOrEqual(0);
     expect(others.length).toBeGreaterThan(0);
 
     const result = runModel(data, DEFAULT_PARAMS, [{ uat: snagov, seat: bucharest }]);

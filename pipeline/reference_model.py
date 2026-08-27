@@ -133,6 +133,8 @@ class Result:
     held: dict[str, bool] = field(default_factory=dict)
     # Stood-down centre -> the capital allowed to claim it. Nobody else may.
     reserved_for: dict[str, str] = field(default_factory=dict)
+    # How many communes the rebalancing pass moved to a nearer seat.
+    rebalanced: int = 0
     relaxed_counties: dict[str, float] = field(default_factory=dict)
 
 
@@ -456,23 +458,19 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
                     nearest = separation.get(candidate, math.inf)
                     if nearest < r_sep:
                         continue
-                gain = sum(
-                    data.population[u]
-                    for u in _reach(data, params, candidate, TIER_PROMOTED)
-                    if u not in covered
-                )
-                # Greedy max-coverage, then population desc, then SIRUTA asc. Coverage
-                # rather than raw population is what disperses seeds; ranking by population
-                # would cluster them in whichever corner of the county is densest, which is
-                # the exact failure this step exists to prevent.
-                # Coverage first, then administrative standing, then size. Without the
-                # standing term a commune promoted for its coverage outranks a town that
-                # was never promoted, which is how Curcani (a commune of 5,301) came to be
-                # the seat of a unit containing Oras Budesti.
+                # Walk down from the threshold: the next candidate is the one whose
+                # population is closest to it from below.
+                #
+                # This step exists because a county came up short of its quota, and the
+                # question it answers is "who is the next most plausible town", which is a
+                # question about size. It used to maximise uncovered population reached,
+                # which answers "who would sweep up the most", and that picked scattered
+                # communes over the obvious next town — Curcani, a commune of 5,301, over
+                # Oras Budesti at 7,126. Administrative standing breaks ties, so a town
+                # beats a commune of the same size.
                 key = (
-                    -gain,
-                    data.admin_rank[candidate],
                     -data.population[candidate],
+                    data.admin_rank[candidate],
                     candidate,
                 )
                 if best is None or key < best:
@@ -699,6 +697,16 @@ def _shadowing_capital(data: Data, params: Params, result: Result, siruta: str) 
     return None if best is None else best[2]
 
 
+# How many times the rebalancing pass may sweep the country. Each sweep only moves communes
+# strictly closer to another seat, so it converges quickly; the limit is a guard against a
+# pathological cycle, not a tuning knob.
+_REBALANCE_SWEEPS = 8
+
+# How many times re-seating and consolidation may take turns before the map is called
+# settled. Two or three is normal; the limit is a guard, not a knob.
+_SETTLE_ROUNDS = 6
+
+
 def _grow(
     data: Data,
     params: Params,
@@ -706,66 +714,109 @@ def _grow(
     sources: list[str],
     blocked: set[str],
 ) -> None:
-    """Multi-source shortest-path growth along roads, from `sources`.
+    """Grow every centre outward, one ring at a time, resolving each ring together.
 
-    Communes are claimed in order of road distance from whichever centre reaches them
-    first, so the assignment answers "which centre is actually nearest" rather than "which
-    centre was processed first". Ties break on tier, then population, then SIRUTA.
+    **Every centre takes its first ring before any centre takes a second.** Growth used to
+    be a single shortest-path race, and a large centre reached past a small one's own
+    doorstep: 56 units under 25,000 sat beside units over 55,000 with nothing left to take.
+
+    **A ring is decided as one round, not claim by claim.** Every centre bids for every
+    unclaimed commune it borders, all the bids are collected, and then the whole ring is
+    settled at once. Populations only change between rounds, so no centre gets an advantage
+    from being processed earlier in the alphabet.
+
+    **A contested commune goes to a centre that still needs it.** Where two centres bid, one
+    that would pass the target by taking it concedes to one that would not — a centre near
+    its target should leave the commune to a neighbour still short of it. Among centres that
+    are equal on that, the nearest by road wins, then the higher tier, then the larger.
+
+    Capitals are exempt from the target rules entirely: they take the ring that borders them
+    and stop, which is settled by their eligibility rather than by their population.
     """
-    heap: list[tuple[float, int, int, str, str]] = []
-    for seed in sorted(sources):
-        heapq.heappush(heap, (0, 0.0, result.seeds[seed], -data.population[seed], seed, seed))
-
     eligible = {seed: _eligible(data, params, seed, result.seeds[seed]) for seed in sources}
     gathered = {seed: 0 for seed in sources}
+    distance_to: dict[tuple[str, str], float] = {}
 
-    while heap:
-        ring, distance, tier, neg_population, absorber, uat = heapq.heappop(heap)
-        if uat in result.region_of or uat in blocked:
+    for seed in sorted(sources):
+        if seed in result.region_of or seed in blocked:
             continue
+        result.region_of[seed] = seed
+        result.members.setdefault(seed, []).append(seed)
+        gathered[seed] += data.population[seed]
+        distance_to[(seed, seed)] = 0.0
 
-        if uat != absorber:
-            if not _may_absorb(data, absorber, uat):
-                continue
-            if result.reserved_for.get(uat, absorber) != absorber:
-                continue
-            # The cap must be checked when claiming, not only when expanding. Stopping
-            # expansion at the cap still let the last commune inside it push a neighbour one
-            # long edge further, and that neighbour was claimed unchecked — which is how
-            # Reșița reached Teregova at 72.9 km against a 35 km cap.
-            if params.max_road_m > 0 and distance > params.max_road_m:
-                continue
-            capped = tier not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
-            # A centre still short of the target keeps going past its radius.
-            #
-            # The radius says how far a centre *pulls* — how far it reaches while it still
-            # has a choice. It should not be what stops a centre that has not yet gathered
-            # enough people to be worth creating: that is the target's job. With the radius
-            # binding, small centres ran out of eligible neighbours at 10 km and stopped at
-            # 9,000 while a neighbour reached 141,000, and there was nothing left beside them
-            # to take. The road cap still bounds it, so "keeps going" is never unbounded.
-            short = capped and params.p_target > 0 and gathered[absorber] < params.p_target
-            if uat not in eligible[absorber] and not short:
-                continue
+    def is_capped(absorber: str) -> bool:
+        return result.seeds[absorber] not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
+
+    while True:
+        # Every bid in this ring, collected before any of them is settled.
+        bids: dict[str, dict[str, float]] = {}
+        for absorber in sorted(sources):
+            capped = is_capped(absorber)
             if capped and params.p_target > 0 and gathered[absorber] >= params.p_target:
                 continue
+            # A centre still short of the target reaches past its radius; the radius says
+            # how far it pulls while it has a choice, not what stops it being viable.
+            short = capped and params.p_target > 0 and gathered[absorber] < params.p_target
+            for held in result.members.get(absorber, ()):
+                base = distance_to.get((absorber, held))
+                if base is None:
+                    continue
+                if params.max_road_m > 0 and base >= params.max_road_m:
+                    continue
+                for neighbour in data.neighbours.get(held, ()):
+                    if neighbour in result.region_of or neighbour in blocked:
+                        continue
+                    if not _may_absorb(data, absorber, neighbour):
+                        continue
+                    if result.reserved_for.get(neighbour, absorber) != absorber:
+                        continue
+                    if neighbour not in eligible[absorber] and not short:
+                        continue
+                    step = data.road_distance.get(
+                        (held, neighbour), _distance(data, held, neighbour)
+                    )
+                    # The cap is checked when claiming, not only when expanding: stopping
+                    # expansion at the cap still let the last commune inside it pull a
+                    # neighbour one long edge further, which is how Resita reached Teregova
+                    # at 72.9 km against a 35 km cap.
+                    reach = base + step
+                    if params.max_road_m > 0 and reach > params.max_road_m:
+                        continue
+                    row = bids.setdefault(neighbour, {})
+                    if absorber not in row or reach < row[absorber]:
+                        row[absorber] = reach
 
-        result.region_of[uat] = absorber
-        result.members.setdefault(absorber, []).append(uat)
-        gathered[absorber] += data.population[uat]
+        if not bids:
+            return
 
-        # Stop expanding once the frontier is further from the centre than anyone should
-        # have to travel to reach their own town hall.
-        if params.max_road_m > 0 and distance >= params.max_road_m:
-            continue
+        def settle(uat: str, row: dict[str, float]) -> str:
+            def key(bidder: str, uat: str = uat, row: dict[str, float] = row) -> tuple:
+                overshoot = (
+                    is_capped(bidder)
+                    and params.p_target > 0
+                    and gathered[bidder] + data.population[uat] > params.p_target
+                )
+                return (
+                    1 if overshoot else 0,
+                    row[bidder],
+                    result.seeds[bidder],
+                    -data.population[bidder],
+                    bidder,
+                )
 
-        for neighbour in data.neighbours.get(uat, ()):
-            if neighbour in result.region_of or neighbour in blocked:
-                continue
-            step = data.road_distance.get((uat, neighbour), _distance(data, uat, neighbour))
-            heapq.heappush(
-                heap, (ring + 1, distance + step, tier, neg_population, absorber, neighbour)
-            )
+            return min(row, key=key)
+
+        won = {uat: settle(uat, row) for uat, row in sorted(bids.items())}
+        for uat in sorted(won):
+            absorber = won[uat]
+            result.region_of[uat] = absorber
+            result.members.setdefault(absorber, []).append(uat)
+            distance_to[(absorber, uat)] = bids[uat][absorber]
+        # Populations move only between rounds, so every bid in a ring was judged against
+        # the same state.
+        for uat, absorber in won.items():
+            gathered[absorber] += data.population[uat]
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:
@@ -1115,6 +1166,100 @@ def reseat_units(data: Data, params: Params, result: Result) -> None:
             result.seeds[new_seat] = result.seeds.pop(old_seat)
 
 
+def rebalance(data: Data, params: Params, result: Result) -> int:
+    """Move a commune to the neighbouring unit whose seat is actually nearer by road.
+
+    Growth settles a commune against the state at the moment it was reached. By the time
+    everything has grown, merged and been re-seated, some communes sit in a unit whose seat
+    is further away than a neighbouring unit's — which is the thing a resident notices first
+    and the thing that produces the ragged edges.
+
+    A move has to satisfy all of this, so every one of them has a one-line reason:
+
+      - the commune borders the unit it is moving to, and may legally join it;
+      - that unit's seat is strictly nearer by road, and within the distance cap;
+      - the unit it leaves stays in one piece;
+      - the unit it leaves does not fall below the target if it was above it — a tidy edge
+        is not worth breaking a unit that was already viable;
+      - the commune is not a seat itself.
+
+    Deterministic: communes are considered in SIRUTA order and the pass repeats until nothing
+    moves, with a hard iteration limit so a pathological cycle cannot spin.
+    """
+    if not result.members:
+        return 0
+
+    moved_total = 0
+    for _sweep in range(_REBALANCE_SWEEPS):
+        reach_cache: dict[str, dict[str, float]] = {}
+
+        def reach_from(
+            seat: str, cache: dict[str, dict[str, float]] = reach_cache
+        ) -> dict[str, float]:
+            cached = cache.get(seat)
+            if cached is None:
+                cached = _county_road_distances(data, data.county[seat], [seat])
+                cache[seat] = cached
+            return cached
+
+        moved = 0
+        for siruta in sorted(data.population):
+            here = result.region_of[siruta]
+            if here == siruta:
+                continue
+            members = result.members[here]
+            here_distance = reach_from(here).get(siruta, math.inf)
+
+            best: tuple[float, str] | None = None
+            for neighbour in data.neighbours.get(siruta, ()):
+                there = result.region_of[neighbour]
+                if there == here or not _may_absorb(data, there, siruta):
+                    continue
+                there_distance = reach_from(there).get(siruta, math.inf)
+                if not there_distance < here_distance:
+                    continue
+                if params.max_road_m > 0 and there_distance > params.max_road_m:
+                    continue
+                if best is None or (there_distance, there) < best:
+                    best = (there_distance, there)
+            if best is None:
+                continue
+            target_unit = best[1]
+
+            remaining = [m for m in members if m != siruta]
+            if not remaining or not _is_connected(data, remaining):
+                continue
+            if params.p_target > 0:
+                before = sum(data.population[m] for m in members)
+                after = before - data.population[siruta]
+                if before >= params.p_target > after:
+                    continue
+
+            result.members[here] = remaining
+            result.members[target_unit].append(siruta)
+            result.region_of[siruta] = target_unit
+            moved += 1
+
+        moved_total += moved
+        if moved == 0:
+            break
+    return moved_total
+
+
+def _is_connected(data: Data, members: list[str]) -> bool:
+    """Whether a set of communes forms one piece over the road-connected graph."""
+    inside = set(members)
+    seen = {members[0]}
+    stack = [members[0]]
+    while stack:
+        current = stack.pop()
+        for neighbour in data.neighbours.get(current, ()):
+            if neighbour in inside and neighbour not in seen:
+                seen.add(neighbour)
+                stack.append(neighbour)
+    return len(seen) == len(inside)
+
+
 def summarise(data: Data, params: Params, result: Result) -> dict:
     regions = sorted(set(result.region_of.values()))
     total_uats = len(data.population)
@@ -1209,7 +1354,24 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
     # Merging changes the membership, so the seats are settled again on the result.
     reseat_units(data, params, result)
     consolidate_to_target(data, params, result)
-    reseat_units(data, params, result)
+    # Last: by now everything has grown, merged and been re-seated, so this is the first
+    # point at which "is this commune actually in the nearest unit" can be asked of the
+    # finished map rather than of a half-built one.
+    result.rebalanced = rebalance(data, params, result)
+
+    # Re-seat and consolidate until they agree.
+    #
+    # They interact: consolidation judges a merge by road distance from the seat that would
+    # survive, and re-seating then moves that seat, which can make a refused merge feasible.
+    # Running each once left units reported as short that in fact had somewhere to go. The
+    # loop ends when a consolidation pass merges nothing, so the seats the last pass judged
+    # from are the seats the map ends with.
+    for _ in range(_SETTLE_ROUNDS):
+        reseat_units(data, params, result)
+        before = len(result.members)
+        consolidate_to_target(data, params, result)
+        if len(result.members) == before:
+            break
     return result, summarise(data, params, result)
 
 

@@ -116,6 +116,22 @@ because a wider radius satisfies more units and each one it satisfies stops acce
 neighbours. A slider labelled "how far a centre reaches" must not increase the number of units
 when you turn it up.
 
+*A ring is settled as one round, not claim by claim.* Every centre bids for every unclaimed
+commune it borders, all the bids are collected, and the whole ring is decided together.
+Populations change only between rounds, so no centre gains an advantage from being processed
+earlier in the alphabet.
+
+*A contested commune goes to a centre that still needs it.* Where two centres bid for the
+same commune, one that would pass the target by taking it concedes to one that would not: a
+centre near its target should leave the commune to a neighbour still short of it. Among
+centres equal on that, the nearest by road wins, then the higher tier, then the larger.
+
+*The pool is filled by walking down from the threshold.* Where a county has fewer centres
+than the minimum, the next one is the town whose population is closest to the threshold from
+below. This used to maximise uncovered population reached, which answers "who would sweep up
+the most" rather than "who is the next plausible town", and it picked Curcani, a commune of
+5,301, over Oras Budesti at 7,126.
+
 *Every centre takes its first ring before any centre takes a second.* Growth is ordered by
 ring first and by road distance only within a ring. Ordered by distance alone it was a single
 race, and a large centre reached past a small one's own doorstep: 56 units under 25,000 sat
@@ -464,6 +480,32 @@ county rule, so a cluster is marked by its badge in the panel instead.
 **Hovering or selecting a commune outlines its county.** The county boundary is the hardest
 constraint in the model, so knowing which county you are looking at explains more of the
 shape on screen than any other single line.
+
+## Putting communes in the right unit
+
+Growth settles a commune against the state at the moment it was reached. By the time
+everything has grown, merged and been re-seated, some communes sit in a unit whose seat is
+further away than a neighbouring unit's — which is the first thing a resident notices and the
+thing that produces ragged edges.
+
+A final pass moves them. A commune changes unit only when it borders the unit it joins and may
+legally join it, that seat is strictly nearer by road and within the cap, the unit it leaves
+stays in one piece, and the unit it leaves does not fall below the target if it was above it —
+a tidier edge is not worth breaking a unit that was already viable. At the default settings
+574 communes move.
+
+Re-seating and consolidation then take turns until they agree, because they interact:
+consolidation judges a merge by road distance from the seat that would survive, and re-seating
+moves that seat, which can make a refused merge feasible. The loop ends when a pass merges
+nothing, so the seats the last pass judged from are the seats the map ends with.
+
+Together these take the spread between the largest and smallest unit inside a county from 19
+times to 10.6, and units still short of the target from 134 to 107.
+
+**Shape is not yet part of this.** The pass optimises for the trip to the town hall, which is
+what was asked for when the two conflict, and compactness is measured but not enforced: the
+median unit scores 0.24 on Polsby-Popper and 94 of them fall below 0.20. A compactness control
+is the next thing to build.
 
 ## Manual overrides
 
