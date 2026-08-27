@@ -103,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     seat_y = np.array([g.y for g in seats.geometry], dtype=np.float32)
     admin = finance["administrative_ron"].to_numpy(dtype=np.float32)
     operating = finance["operating_ron"].to_numpy(dtype=np.float32)
+    development = finance["development_ron"].to_numpy(dtype=np.float32)
+    personnel = finance["personnel_ron"].to_numpy(dtype=np.float32)
+    admin_personnel = finance["admin_personnel_ron"].to_numpy(dtype=np.float32)
+    income = finance["income_ron"].to_numpy(dtype=np.float32)
 
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (WEB_DATA_DIR / "attributes.bin").write_bytes(
@@ -111,6 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         + seat_y.tobytes()
         + admin.tobytes()
         + operating.tobytes()
+        + development.tobytes()
+        + personnel.tobytes()
+        + admin_personnel.tobytes()
+        + income.tobytes()
     )
 
     (WEB_DATA_DIR / "attributes.json").write_text(
@@ -387,6 +395,15 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = {
         "uatCount": len(order),
+        # Order of the float32 blocks in attributes.bin after population/seatX/seatY.
+        "financeSeries": [
+            "administrative",
+            "operating",
+            "development",
+            "personnel",
+            "adminPersonnel",
+            "income",
+        ],
         "adminCostBreaks": cost_breaks,
         "overlapScale": OVERLAP_SCALE,
         "overlapDecimals": OVERLAP_QUANTISATION_DECIMALS,

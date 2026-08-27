@@ -206,6 +206,11 @@ EXPENSE_TYPES: Final[tuple[str, ...]] = ("functionare", "dezvoltare")
 # full operating figure as an explicit upper bound.
 ADMIN_FUNCTIONAL_PREFIX: Final = "51"
 
+# Economic classification prefix for "Cheltuieli de personal" — wages and contributions.
+# Crossed with the administration function it gives the wage bill of the town hall itself,
+# which is the part of a merger's saving that is a payroll rather than an estimate.
+PERSONNEL_ECONOMIC_PREFIX: Final = "10"
+
 
 # --- Roads ------------------------------------------------------------------------------
 # Only ever used for a binary 'does a road cross this shared border' test (brief §8

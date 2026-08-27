@@ -33,6 +33,10 @@ export interface ReadyMessage {
   population: Uint32Array;
   administrativeRon: Float32Array;
   operatingRon: Float32Array;
+  developmentRon: Float32Array;
+  personnelRon: Float32Array;
+  adminPersonnelRon: Float32Array;
+  incomeRon: Float32Array;
   /**
    * Colours for the map as it is today, where every commune is its own unit.
    *
@@ -112,12 +116,20 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         population: data.population.slice(),
         administrativeRon: data.administrativeRon.slice(),
         operatingRon: data.operatingRon.slice(),
+        developmentRon: data.developmentRon.slice(),
+        personnelRon: data.personnelRon.slice(),
+        adminPersonnelRon: data.adminPersonnelRon.slice(),
+        incomeRon: data.incomeRon.slice(),
         currentColourOf,
       };
       self.postMessage(ready, [
         ready.population.buffer,
         ready.administrativeRon.buffer,
         ready.operatingRon.buffer,
+        ready.developmentRon.buffer,
+        ready.personnelRon.buffer,
+        ready.adminPersonnelRon.buffer,
+        ready.incomeRon.buffer,
         ready.currentColourOf.buffer,
       ]);
       return;

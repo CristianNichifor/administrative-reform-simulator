@@ -418,9 +418,28 @@ async function boot(): Promise<void> {
     members.sort((a, b) => ready!.population[b]! - ready!.population[a]!);
 
     const orphan = isOrphanRegion[region] === 1;
-    const totalPop = members.reduce((sum, i) => sum + ready!.population[i]!, 0);
-    const totalAdmin = members.reduce((sum, i) => sum + ready!.administrativeRon[i]!, 0);
-    const totalOperating = members.reduce((sum, i) => sum + ready!.operatingRon[i]!, 0);
+    const sum = (series: Float32Array): number =>
+      members.reduce((total, i) => total + series[i]!, 0);
+    const totalPop = members.reduce((total, i) => total + ready!.population[i]!, 0);
+    const totalAdmin = sum(ready.administrativeRon);
+    const totalOperating = sum(ready.operatingRon);
+    const totalDevelopment = sum(ready.developmentRon);
+    const totalPersonnel = sum(ready.personnelRon);
+    const totalAdminPersonnel = sum(ready.adminPersonnelRon);
+    const totalIncome = sum(ready.incomeRon);
+
+    // The saving is the administration of everyone except the centre: the centre keeps its
+    // own town hall, and the rest is what a merger removes.
+    const centreAdmin = ready.administrativeRon[region]!;
+    const saved = Math.max(0, totalAdmin - centreAdmin);
+    const balance = totalIncome - (totalOperating + totalDevelopment);
+
+    const scale = Math.max(totalIncome, totalOperating + totalDevelopment, 1);
+    const bar = (label: string, value: number, colour: string): string => `
+      <div class="row">
+        <div class="top"><span>${label}</span><span>${formatMoney(value, scenario.lang)}</span></div>
+        <div class="bar"><i style="width:${Math.min(100, (value / scale) * 100).toFixed(1)}%;background:${colour}"></i></div>
+      </div>`;
 
     panel.innerHTML = `
       <p class="kicker">${strings.region}${orphan ? ` · <span class="badge orphan">${strings.legendOrphan}</span>` : ''}</p>
@@ -435,6 +454,31 @@ async function boot(): Promise<void> {
           totalPop > 0 ? formatNumber(totalAdmin / totalPop, scenario.lang) : '—'
         } RON</dd>
       </dl>
+      <div class="fiscal">
+        <h4>${strings.fiscalHeading}</h4>
+        ${bar(strings.ownIncome, totalIncome, '#43b07a')}
+        ${bar(strings.adminPersonnel, totalAdminPersonnel, '#e0b13a')}
+        ${bar(strings.totalPersonnel, totalPersonnel, '#e08a34')}
+        ${bar(strings.operatingCost, totalOperating, '#d4544c')}
+        ${bar(strings.developmentCost, totalDevelopment, '#3f8fd4')}
+        <div class="balance ${balance >= 0 ? 'surplus' : 'deficit'}">
+          <span>${balance >= 0 ? strings.balanceSurplus : strings.balanceDeficit}</span>
+          <span>${formatMoney(Math.abs(balance), scenario.lang)}</span>
+        </div>
+      </div>
+
+      <div class="savings">
+        <h4>${strings.savingsHeading}</h4>
+        <dl>
+          <dt>${strings.totalOperatingOfMembers}</dt><dd>${formatMoney(totalAdmin, scenario.lang)}</dd>
+          <dt>${strings.centreKeeps}</dt><dd>${formatMoney(centreAdmin, scenario.lang)}</dd>
+        </dl>
+        <div class="headline">
+          <div class="value">${formatMoney(saved, scenario.lang)}</div>
+          <div class="label">${strings.savedPerYear}</div>
+        </div>
+      </div>
+
       <div class="why">
         <h4>${strings.whyTitle}</h4>
         <p>${explain(region)}</p>

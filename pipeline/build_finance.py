@@ -68,16 +68,20 @@ def reshape(raw: dict, report: Report) -> pd.DataFrame:
             raise SystemExit(f"  FATAL: {duplicated} duplicate SIRUTA in {expense_type} rows")
         frames.append(df.set_index("siruta"))
 
-    admin = pd.DataFrame(raw["administrative"])
-    admin["siruta"] = normalise_siruta(admin["siruta_code"])
-    frames.append(
-        admin[["siruta", "total_amount"]]
-        .rename(columns={"total_amount": "administrative"})
-        .set_index("siruta")
-    )
+    for key in ("administrative", "personnel", "admin_personnel", "income"):
+        rows = raw.get(key) or []
+        if not rows:
+            raise SystemExit(f"  FATAL: the {key} series is empty, live and cached")
+        frame = pd.DataFrame(rows)
+        frame["siruta"] = normalise_siruta(frame["siruta_code"])
+        frames.append(
+            frame[["siruta", "total_amount"]]
+            .rename(columns={"total_amount": key})
+            .set_index("siruta")
+        )
 
     wide = pd.concat(frames, axis=1).reset_index()
-    money_cols = [*EXPENSE_TYPES, "administrative"]
+    money_cols = [*EXPENSE_TYPES, "administrative", "personnel", "admin_personnel", "income"]
     wide[money_cols] = wide[money_cols].fillna(0.0)
 
     report.add(
@@ -123,6 +127,33 @@ def check_totals(wide: pd.DataFrame, report: Report) -> None:
         )
     )
 
+    # Each narrower series must sit inside the one it is carved from, or the classification
+    # filters have returned something that is not what their names claim.
+    personnel = wide["personnel"].sum()
+    admin_personnel = wide["admin_personnel"].sum()
+    income = wide["income"].sum()
+    report.add(
+        Check(
+            "classification_nesting",
+            admin_personnel <= admin and admin_personnel <= personnel and personnel <= operating,
+            f"admin personnel {admin_personnel / 1e9:.1f} bn sits inside administration "
+            f"{admin / 1e9:.1f} bn and personnel {personnel / 1e9:.1f} bn, which sits inside "
+            f"operating {operating / 1e9:.1f} bn",
+            fatal=not (
+                admin_personnel <= admin and admin_personnel <= personnel and personnel <= operating
+            ),
+        )
+    )
+    report.add(
+        Check(
+            "income_vs_expenditure",
+            0.8 <= income / total <= 1.25 if total else False,
+            f"income {income / 1e9:.1f} bn against expenditure {total / 1e9:.1f} bn "
+            f"({income / total:.2f}x) — local budgets are close to balanced by law",
+            fatal=not (0.8 <= income / total <= 1.25 if total else False),
+        )
+    )
+
     share = operating / total if total else 0
     # Operating spending dominates local budgets everywhere; if development ever exceeded
     # it nationally, the two columns would have been swapped somewhere.
@@ -165,13 +196,16 @@ def join_to_uats(wide: pd.DataFrame, uats: gpd.GeoDataFrame, report: Report) -> 
     )
 
     merged = uats.merge(wide, on="siruta", how="left", validate="one_to_one")
-    money_cols = [*EXPENSE_TYPES, "administrative"]
+    money_cols = [*EXPENSE_TYPES, "administrative", "personnel", "admin_personnel", "income"]
     merged[money_cols] = merged[money_cols].fillna(0.0)
     merged = merged.rename(
         columns={
             "functionare": "operating_ron",
             "dezvoltare": "development_ron",
             "administrative": "administrative_ron",
+            "personnel": "personnel_ron",
+            "admin_personnel": "admin_personnel_ron",
+            "income": "income_ron",
         }
     )
 
@@ -253,6 +287,9 @@ def main(argv: list[str] | None = None) -> int:
             "operating_ron",
             "administrative_ron",
             "development_ron",
+            "personnel_ron",
+            "admin_personnel_ron",
+            "income_ron",
             "operating_per_capita_ron",
         ]
     ].sort_values("siruta", ignore_index=True).to_parquet(out, index=False, compression="zstd")

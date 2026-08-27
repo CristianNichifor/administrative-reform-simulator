@@ -441,6 +441,109 @@ button {
   color: var(--orphan);
 }
 
+/* --- fiscal breakdown in the detail panel --------------------------------------------- */
+.fiscal {
+  margin: 12px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.fiscal h4,
+.savings h4 {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.fiscal .row {
+  margin-bottom: 7px;
+}
+
+.fiscal .row .top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.fiscal .row .top span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Bars are scaled against the largest figure in the panel, so the comparison a reader
+   makes by eye is between the lines they can see rather than against a hidden maximum. */
+.fiscal .bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.fiscal .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.savings {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.savings dl {
+  margin: 0 0 10px;
+}
+
+.savings .headline {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(67, 176, 122, 0.14);
+  border: 1px solid rgba(67, 176, 122, 0.35);
+}
+
+.savings .headline .value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #6ed49b;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings .headline .label {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.balance {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.balance.surplus {
+  background: rgba(67, 176, 122, 0.1);
+  color: #6ed49b;
+}
+
+.balance.deficit {
+  background: rgba(212, 84, 76, 0.12);
+  color: #e88b84;
+}
+
+.balance span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* --- legend ------------------------------------------------------------------------- */
 /* Lives inside the controls tray. On the right it sat under the detail panel, which is
    open whenever a reader is actually studying a unit — exactly when the legend is wanted. */

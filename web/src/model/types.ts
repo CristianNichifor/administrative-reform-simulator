@@ -72,6 +72,7 @@ export interface Manifest {
   uatCount: number;
   /** Quartile breaks for administration cost per resident, in RON. */
   adminCostBreaks: number[];
+  financeSeries: string[];
   overlapScale: number;
   overlapDecimals: number;
   radiusGrid: number[];
@@ -111,6 +112,10 @@ export interface ModelData {
   seatY: Float32Array;
   administrativeRon: Float32Array;
   operatingRon: Float32Array;
+  developmentRon: Float32Array;
+  personnelRon: Float32Array;
+  adminPersonnelRon: Float32Array;
+  incomeRon: Float32Array;
   /** County index per UAT; interned so comparisons are integer, not string. */
   countyOf: Uint8Array;
   countyCodes: string[];

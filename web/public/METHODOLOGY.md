@@ -194,6 +194,21 @@ today, and the population and size of the unit it would join.
 Names appear once the map is zoomed in far enough to have room for them. Across the whole
 country there are 3,186 of them and any labelling is an unreadable pile.
 
+### What the panel shows
+
+Selecting a unit gives its fiscal position: total income, the wage bill of its
+administrative staff, its total wage bill, operating spending and development spending,
+with the balance between income and spending underneath.
+
+The estimated saving is the administration of every commune in the unit **except the
+centre**, because the centre keeps its own town hall. It is the same figure as the national
+headline, computed for one unit.
+
+Two limits worth knowing. Income is the total, not "own revenues" — separating locally
+raised income from state transfers needs a revenue-code breakdown that has not been stable
+enough to depend on. And the figures are 2024 execution for the communes as they are today;
+they are what a merger would inherit, not a forecast of what it would spend.
+
 ### Where the data comes from
 
 | Layer | Source | Vintage |

@@ -51,9 +51,18 @@ export function decode(raw: RawPayload): ModelData {
   offset += n * F32;
   const seatY = new Float32Array(raw.attributesBin, offset, n);
   offset += n * F32;
+  // Finance series follow in the order the manifest records, one float32 block each.
   const administrativeRon = new Float32Array(raw.attributesBin, offset, n);
   offset += n * F32;
   const operatingRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const developmentRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const personnelRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const adminPersonnelRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const incomeRon = new Float32Array(raw.attributesBin, offset, n);
 
   // Intern county codes so the "same county" test in the inner loop is an integer
   // comparison rather than a string comparison.
@@ -171,6 +180,10 @@ export function decode(raw: RawPayload): ModelData {
     seatY,
     administrativeRon,
     operatingRon,
+    developmentRon,
+    personnelRon,
+    adminPersonnelRon,
+    incomeRon,
     countyOf,
     countyCodes,
     capitalOfCounty,

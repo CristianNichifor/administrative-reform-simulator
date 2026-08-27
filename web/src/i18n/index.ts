@@ -93,6 +93,18 @@ export interface Strings {
   centre: string;
   members: string;
   population: string;
+  fiscalHeading: string;
+  savingsHeading: string;
+  ownIncome: string;
+  adminPersonnel: string;
+  totalPersonnel: string;
+  developmentCost: string;
+  totalOperatingOfMembers: string;
+  centreKeeps: string;
+  savedPerYear: string;
+  balanceSurplus: string;
+  balanceDeficit: string;
+  perResident: string;
   adminCost: string;
   operatingCost: string;
   county: string;
@@ -200,6 +212,18 @@ const ro: Strings = {
   centre: 'Centru',
   members: 'Comune componente',
   population: 'Populație',
+  fiscalHeading: 'Situație fiscală',
+  savingsHeading: 'Economii estimate',
+  ownIncome: 'Venituri totale',
+  adminPersonnel: 'Personal administrativ',
+  totalPersonnel: 'Personal total',
+  developmentCost: 'Cheltuieli de dezvoltare',
+  totalOperatingOfMembers: 'Administrație, toate comunele',
+  centreKeeps: 'Centrul păstrează',
+  savedPerYear: 'economii estimate / an prin fuziune',
+  balanceSurplus: 'Excedent',
+  balanceDeficit: 'Deficit',
+  perResident: '/ locuitor',
   adminCost: 'Cheltuieli de administrație',
   operatingCost: 'Cheltuieli de funcționare',
   county: 'Județ',
@@ -307,6 +331,18 @@ const en: Strings = {
   centre: 'Centre',
   members: 'Component communes',
   population: 'Population',
+  fiscalHeading: 'Fiscal position',
+  savingsHeading: 'Estimated saving',
+  ownIncome: 'Total income',
+  adminPersonnel: 'Administrative staff',
+  totalPersonnel: 'Total staff',
+  developmentCost: 'Development spending',
+  totalOperatingOfMembers: 'Administration, all communes',
+  centreKeeps: 'The centre keeps',
+  savedPerYear: 'estimated saving / year from merging',
+  balanceSurplus: 'Surplus',
+  balanceDeficit: 'Deficit',
+  perResident: '/ resident',
   adminCost: 'Administration spending',
   operatingCost: 'Operating spending',
   county: 'County',

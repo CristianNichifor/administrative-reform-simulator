@@ -324,8 +324,34 @@ def fetch_finance(force: bool = False) -> Path:
     if _skip(out, force):
         return out
 
-    def _query(expense_type: str, functional_prefix: str | None = None) -> str:
-        prefix_filter = f'functional_prefixes: ["{functional_prefix}"]' if functional_prefix else ""
+    def _income_query() -> str:
+        return f"""
+        query Income($year: PeriodDate!) {{
+          heatmapUATData(
+            filter: {{
+              account_category: vn
+              report_type: {sources.FINANCE_REPORT_TYPE}
+              is_uat: true
+              report_period: {{ type: YEAR, selection: {{ dates: [$year] }} }}
+            }}
+          ) {{
+            siruta_code
+            total_amount
+          }}
+        }}
+        """
+
+    def _query(
+        expense_type: str,
+        functional_prefix: str | None = None,
+        economic_prefix: str | None = None,
+    ) -> str:
+        parts = []
+        if functional_prefix:
+            parts.append(f'functional_prefixes: ["{functional_prefix}"]')
+        if economic_prefix:
+            parts.append(f'economic_prefixes: ["{economic_prefix}"]')
+        prefix_filter = " ".join(parts)
         return f"""
         query Finance($year: PeriodDate!) {{
           heatmapUATData(
@@ -370,24 +396,60 @@ def fetch_finance(force: bool = False) -> Path:
         payload["by_expense_type"][expense_type] = rows  # type: ignore[index]
         time.sleep(GRAPHQL_PAGE_DELAY_S)
 
+    def _run(query: str, label: str) -> list[dict] | None:
+        """Run one query, returning None if the server rejects it.
+
+        The classification filters are the fragile part of this API: queries using
+        `functional_prefixes` returned results one day and "Internal server error" the next,
+        with plain queries unaffected throughout. A transient upstream fault should not lose
+        the whole finance layer, so a failed series falls back to whatever was cached.
+        """
+        response = session.post(
+            sources.GRAPHQL_ENDPOINT,
+            json={"query": query, "variables": {"year": str(sources.FINANCE_YEAR)}},
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+            timeout=TIMEOUT,
+        )
+        if response.status_code >= 500 or "errors" in response.json():
+            print(f"  {label:14s} upstream refused the query — keeping any cached series")
+            return None
+        rows = response.json()["data"]["heatmapUATData"]
+        total = sum(row["total_amount"] or 0 for row in rows)
+        print(f"  {label:14s} {len(rows):5d} rows, {total / 1e9:7.1f} bn RON")
+        time.sleep(GRAPHQL_PAGE_DELAY_S)
+        return rows
+
+    cached = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}
+
+    income = _run(_income_query(), "income")
+    payload["income"] = income if income is not None else cached.get("income", [])
+
     # Administration only, which is the slice a merger actually removes.
-    r = session.post(
-        sources.GRAPHQL_ENDPOINT,
-        json={
-            "query": _query("functionare", sources.ADMIN_FUNCTIONAL_PREFIX),
-            "variables": {"year": str(sources.FINANCE_YEAR)},
-        },
-        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
-        timeout=TIMEOUT,
+    admin = _run(_query("functionare", sources.ADMIN_FUNCTIONAL_PREFIX), "administrative")
+    payload["administrative"] = admin if admin is not None else cached.get("administrative", [])
+    personnel = _run(
+        _query("functionare", economic_prefix=sources.PERSONNEL_ECONOMIC_PREFIX),
+        "personnel",
     )
-    r.raise_for_status()
-    body = r.json()
-    if "errors" in body:
-        raise SystemExit(f"  FATAL: GraphQL errors: {json.dumps(body['errors'])[:400]}")
-    rows = body["data"]["heatmapUATData"]
-    total = sum(row["total_amount"] or 0 for row in rows)
-    print(f"  {'administrative':12s} {len(rows):5d} rows, {total / 1e9:7.1f} bn RON")
-    payload["administrative"] = rows
+    payload["personnel"] = personnel if personnel is not None else cached.get("personnel", [])
+
+    admin_personnel = _run(
+        _query(
+            "functionare",
+            functional_prefix=sources.ADMIN_FUNCTIONAL_PREFIX,
+            economic_prefix=sources.PERSONNEL_ECONOMIC_PREFIX,
+        ),
+        "admin personnel",
+    )
+    payload["admin_personnel"] = (
+        admin_personnel if admin_personnel is not None else cached.get("admin_personnel", [])
+    )
+
+    if not payload["administrative"]:
+        raise SystemExit(
+            "  FATAL: no administrative series, live or cached. The savings headline "
+            "depends on it, so the build stops rather than reporting zero."
+        )
 
     out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     _sidecar(out, sources.FINANCE, year=sources.FINANCE_YEAR)

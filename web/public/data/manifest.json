@@ -1,5 +1,13 @@
 {
   "uatCount": 3186,
+  "financeSeries": [
+    "administrative",
+    "operating",
+    "development",
+    "personnel",
+    "adminPersonnel",
+    "income"
+  ],
   "adminCostBreaks": [
     653.1119943104981,
     819.0542601179386,
