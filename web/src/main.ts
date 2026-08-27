@@ -182,8 +182,49 @@ async function boot(): Promise<void> {
     }
   };
 
+  /**
+   * Repaint from the latest result, in whatever mode is selected.
+   *
+   * "Today" is not a different computation, only a different thing to draw: the 3,186
+   * communes as they are, each its own unit and its own seat. Keeping it here rather than in
+   * the worker means switching between before and after is instant.
+   */
+  const paint = (): void => {
+    if (!latest || !ready) return;
+    const showingToday = scenario.mode === 'current';
+    const identity = new Uint16Array(latest.regionOf.length);
+    for (let i = 0; i < identity.length; i += 1) identity[i] = i;
+
+    mapHandle.applyAssignment(
+      showingToday ? identity : latest.regionOf,
+      showingToday ? ready.currentColourOf : latest.colourOf,
+      latest.tierOf,
+      scenario.mode,
+      costPerResident,
+      costBreaks,
+    );
+
+    const kindOf = new Int8Array(latest.regionOf.length).fill(-1);
+    if (!showingToday) {
+      for (let i = 0; i < latest.regionOf.length; i += 1) {
+        if (latest.regionOf[i] !== i) continue;
+        kindOf[i] =
+          latest.tierOf[i] !== -1
+            ? ready.attributes.isCapital[i]
+              ? SEAT_KIND.CAPITAL
+              : SEAT_KIND.CENTRE
+            : isOrphanRegion[i] === 1
+              ? SEAT_KIND.ORPHAN
+              : SEAT_KIND.UNCHANGED;
+      }
+    }
+    mapHandle.setCentres(kindOf);
+    renderLabels();
+  };
+
   const renderModes = (): void => {
     const modes: [ViewMode, string][] = [
+      ['current', strings.viewCurrent],
       ['regions', strings.viewRegions],
       ['cost', strings.viewCost],
     ];
@@ -199,16 +240,9 @@ async function boot(): Promise<void> {
         writeHash(scenario);
         renderModes();
         renderLegend();
-        if (latest) {
-          mapHandle.applyAssignment(
-            latest.regionOf,
-            latest.colourOf,
-            latest.tierOf,
-            scenario.mode,
-            costPerResident,
-            costBreaks,
-          );
-        }
+        renderSummary();
+        renderDetail();
+        paint();
       });
     }
   };
@@ -280,6 +314,14 @@ async function boot(): Promise<void> {
   const renderSummary = (): void => {
     if (!latest || !ready) {
       el('#summary').innerHTML = `<div class="stat"><span class="value">—</span></div>`;
+      return;
+    }
+    if (scenario.mode === 'current') {
+      el('#summary').innerHTML =
+        `<div class="stat"><span class="value">${formatNumber(ready.uatCount, scenario.lang)}</span>` +
+        `<span class="label">${strings.viewCurrent}</span></div>` +
+        `<div class="stat"><span class="value accent">${formatNumber(latest.regions, scenario.lang)}</span>` +
+        `<span class="label">${strings.viewRegions}</span></div>`;
       return;
     }
     const reduction = 100 * (1 - latest.regions / ready.uatCount);
@@ -464,37 +506,48 @@ async function boot(): Promise<void> {
       if (message.tierOf[region] === -1) isOrphanRegion[region] = 1;
     }
 
-    mapHandle.applyAssignment(
-      message.regionOf,
-      message.colourOf,
-      message.tierOf,
-      scenario.mode,
-      costPerResident,
-      costBreaks,
-    );
-    // Every resulting unit gets a seat marker, not only the gravitational ones. An orphan
-    // cluster keeps its largest member and a commune nothing reached is its own seat;
-    // marking only the centres left whole stretches of the map with no indication of where
-    // the administration would sit.
-    const kindOf = new Int8Array(message.regionOf.length).fill(-1);
-    for (let i = 0; i < message.regionOf.length; i += 1) {
-      if (message.regionOf[i] !== i) continue;
-      kindOf[i] =
-        message.tierOf[i] !== -1
-          ? ready!.attributes.isCapital[i]
-            ? SEAT_KIND.CAPITAL
-            : SEAT_KIND.CENTRE
-          : isOrphanRegion[i] === 1
-            ? SEAT_KIND.ORPHAN
-            : SEAT_KIND.UNCHANGED;
-    }
-    mapHandle.setCentres(kindOf);
+    paint();
     renderSummary();
     renderDetail();
     el<HTMLElement>('#loading').hidden = true;
   };
 
   // --- interaction -------------------------------------------------------------------
+
+  /**
+   * Names on the map, once zoomed in far enough to have room for them.
+   *
+   * Below the threshold there are 3,186 communes across the country and any labelling is an
+   * unreadable pile; above it there are a few dozen on screen. In "today" every commune is
+   * named, otherwise only the seats — the name of a unit belongs at its centre, and naming
+   * every absorbed commune would say nothing about which unit it joined.
+   */
+  const LABEL_ZOOM = 8.2;
+  const LABEL_LIMIT = 90;
+  const labels = el<HTMLElement>('#labels');
+
+  const renderLabels = (): void => {
+    if (!ready || !latest || mapHandle.zoom() < LABEL_ZOOM) {
+      labels.replaceChildren();
+      return;
+    }
+    const showingToday = scenario.mode === 'current';
+    const accept = (index: number): boolean =>
+      showingToday || latest!.regionOf[index] === index;
+
+    const fragment = document.createDocumentFragment();
+    for (const point of mapHandle.visibleSeats(accept, LABEL_LIMIT)) {
+      const node = document.createElement('span');
+      node.textContent = ready.attributes.name[point.index]!;
+      if (!showingToday) node.className = 'centre';
+      node.style.left = `${point.x}px`;
+      node.style.top = `${point.y}px`;
+      fragment.append(node);
+    }
+    labels.replaceChildren(fragment);
+  };
+
+  mapHandle.onViewChange(renderLabels);
 
   // Hover: the commune as it is today, and the unit it would belong to. Both at once,
   // because "what happens to my commune" is the question the map is actually asked, and

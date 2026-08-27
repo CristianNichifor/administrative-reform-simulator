@@ -53,6 +53,7 @@ export interface Strings {
   orphanRegions: string;
   underSeeded: string;
 
+  viewCurrent: string;
   viewRegions: string;
   viewCost: string;
   costPerResident: string;
@@ -154,6 +155,7 @@ const ro: Strings = {
   orphanRegions: 'Grupări de comune mici',
   underSeeded: 'Județe sub prag',
 
+  viewCurrent: 'Situație actuală',
   viewRegions: 'Unități rezultate',
   viewCost: 'Cost administrativ / locuitor',
   costPerResident: 'Cost administrativ / locuitor',
@@ -260,6 +262,7 @@ const en: Strings = {
   orphanRegions: 'Small-commune clusters',
   underSeeded: 'Under-seeded counties',
 
+  viewCurrent: 'Today',
   viewRegions: 'Resulting units',
   viewCost: 'Admin cost per resident',
   costPerResident: 'Admin cost per resident',

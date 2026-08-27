@@ -66,7 +66,7 @@ export const R_SEP_RELAXATION_FACTOR = 0.75;
 export const R_SEP_RELAXATION_FLOOR_M = 2_000;
 
 /** How the map is coloured. Encoded in the URL hash alongside the parameters. */
-export type ViewMode = 'regions' | 'cost';
+export type ViewMode = 'current' | 'regions' | 'cost';
 
 export interface Manifest {
   uatCount: number;

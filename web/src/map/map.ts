@@ -113,6 +113,12 @@ const BLANK_STYLE: StyleSpecification = {
   // `undefined`. Nothing here renders text, so there is no font to point at.
 };
 
+export interface LabelPoint {
+  index: number;
+  x: number;
+  y: number;
+}
+
 export interface MapHandle {
   map: MapLibreMap;
   /** Paint every UAT from a region assignment, in the given view mode. */
@@ -128,6 +134,18 @@ export interface MapHandle {
   onSelect: (handler: (index: number | null) => void) => void;
   /** Fires as the pointer moves over the map; index is null when it leaves. */
   onHover: (handler: (index: number | null, x: number, y: number) => void) => void;
+  /** Fires after any pan or zoom settles. */
+  onViewChange: (handler: () => void) => void;
+  /** Current zoom level. */
+  zoom: () => number;
+  /**
+   * Seat points currently on screen, with their pixel positions.
+   *
+   * Used for labelling. Labels are HTML rather than a MapLibre symbol layer because a
+   * symbol layer needs glyph fonts, which would mean either depending on an external font
+   * server at runtime or shipping font atlases — a lot of weight for a few dozen names.
+   */
+  visibleSeats: (accept: (index: number) => boolean, limit: number) => LabelPoint[];
   /** Show or hide a context layer. Roads are fetched the first time they are shown. */
   setOverlay: (overlay: Overlay, visible: boolean) => Promise<void>;
   /**
@@ -426,6 +444,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
       // marker is for, and it does not cost the shape its legibility.
       const colour =
         mode === 'cost' ? costColour(costPerResident[i]!, costBreaks) : PALETTE[colourOf[i]!]!;
+      // In "today" the map shows the 3,186 communes as they are, so nothing is a centre.
       map.setFeatureState(
         { source: SOURCE_ID, id: i },
         { colour, absorber: mode === 'regions' && isAbsorber },
@@ -436,12 +455,46 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     }
   };
 
+  const viewHandlers: (() => void)[] = [];
+  map.on('moveend', () => {
+    for (const handler of viewHandlers) handler();
+  });
+  map.on('zoomend', () => {
+    for (const handler of viewHandlers) handler();
+  });
+
+  const visibleSeats = (accept: (index: number) => boolean, limit: number): LabelPoint[] => {
+    const canvas = map.getCanvas();
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const out: LabelPoint[] = [];
+    for (const feature of map.querySourceFeatures('seats')) {
+      const id = typeof feature.id === 'number' ? feature.id : -1;
+      if (id < 0 || !accept(id)) continue;
+      const geometry = feature.geometry;
+      if (geometry.type !== 'Point') continue;
+      const [lng, lat] = geometry.coordinates as [number, number];
+      const point = map.project([lng, lat]);
+      // Margin so a label whose anchor is just off screen still appears, rather than
+      // popping in only once its dot crosses the edge.
+      if (point.x < -60 || point.y < -20 || point.x > width + 60 || point.y > height + 20) {
+        continue;
+      }
+      out.push({ index: id, x: point.x, y: point.y });
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+
   return {
     map,
     applyAssignment,
     setSelected,
     onSelect: (handler) => selectHandlers.push(handler),
     onHover: (handler) => hoverHandlers.push(handler),
+    onViewChange: (handler) => viewHandlers.push(handler),
+    zoom: () => map.getZoom(),
+    visibleSeats,
     setOverlay,
     setCentres,
   };

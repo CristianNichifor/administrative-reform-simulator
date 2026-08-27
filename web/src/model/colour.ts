@@ -18,7 +18,11 @@
 import type { ModelData } from './types';
 
 /**
- * Cool hues for units built by absorption, warm for small-commune clusters.
+ * Saturated hues for units built by absorption, warm ones for small-commune clusters.
+ *
+ * Deliberately vivid rather than muted. On a dark basemap a low-saturation palette reads as
+ * a single grey-blue wash from any distance, and the whole point of the map is that a
+ * reader can pick one unit out of its neighbours at a glance.
  *
  * The two families are kept apart so the brief's requirement still holds — a cluster
  * follows a different rule and should stay recognisable — while the no-two-neighbours-alike
@@ -27,12 +31,29 @@ import type { ModelData } from './types';
  * which is rare and always preferable to two adjacent units matching.
  */
 export const COOL_PALETTE = [
-  '#2f6f8f', '#3f8f7f', '#5b7fa8', '#417f5c', '#6a6f9c', '#2f7f7a',
-  '#4a6f8f', '#557f6a', '#3f6f9c', '#5f8f8a', '#46769b', '#6d83ab',
+  '#3f8fd4', // blue
+  '#43b07a', // green
+  '#9b6bd6', // purple
+  '#2fa9a0', // teal
+  '#5c7fe0', // indigo
+  '#6cb33f', // olive-green
+  '#c05fc0', // magenta
+  '#3fb8c9', // cyan
+  '#7a6ee0', // violet
+  '#5aa832', // grass
+  '#4f9bb8', // steel
+  '#8f57b8', // deep purple
+  '#37a05f', // emerald
+  '#6f8fe8', // periwinkle
 ];
 
 export const WARM_PALETTE = [
-  '#b58547', '#c2924f', '#a87a3e', '#cc9e5c', '#9d7038', '#d3a96a',
+  '#e08a34', // orange
+  '#d4544c', // red
+  '#e0b13a', // gold
+  '#c9683a', // burnt orange
+  '#d94f7c', // rose
+  '#b8863a', // amber
 ];
 
 export const PALETTE = [...COOL_PALETTE, ...WARM_PALETTE];

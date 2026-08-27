@@ -187,6 +187,13 @@ matching is always worse than a cluster drawn in the wrong family.
 The seat of every unit is marked: gold for a county capital, white for another centre, and a
 smaller pale dot for a cluster seat or a commune nothing reached.
 
+**Today** shows the map as it stands — all 3,186 communes, each its own unit — so the before
+and after can be compared directly. Hovering any commune gives both at once: its population
+today, and the population and size of the unit it would join.
+
+Names appear once the map is zoomed in far enough to have room for them. Across the whole
+country there are 3,186 of them and any labelling is an unreadable pile.
+
 ### Where the data comes from
 
 | Layer | Source | Vintage |

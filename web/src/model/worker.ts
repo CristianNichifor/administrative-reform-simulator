@@ -33,6 +33,13 @@ export interface ReadyMessage {
   population: Uint32Array;
   administrativeRon: Float32Array;
   operatingRon: Float32Array;
+  /**
+   * Colours for the map as it is today, where every commune is its own unit.
+   *
+   * Computed once: today's map does not depend on any slider, so recomputing it on every
+   * drag would be work that can never change the answer.
+   */
+  currentColourOf: Uint8Array;
 }
 
 export interface ResultMessage {
@@ -91,6 +98,11 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
   try {
     if (message.type === 'init') {
       data = await load(message.baseUrl);
+      // Identity assignment: each commune is its own unit, coloured so neighbours differ.
+      const identity = new Uint16Array(data.uatCount);
+      for (let i = 0; i < data.uatCount; i += 1) identity[i] = i;
+      const currentColourOf = assignUnitColours(data, identity, new Uint8Array(data.uatCount));
+
       const ready: ReadyMessage = {
         type: 'ready',
         uatCount: data.uatCount,
@@ -100,11 +112,13 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         population: data.population.slice(),
         administrativeRon: data.administrativeRon.slice(),
         operatingRon: data.operatingRon.slice(),
+        currentColourOf,
       };
       self.postMessage(ready, [
         ready.population.buffer,
         ready.administrativeRon.buffer,
         ready.operatingRon.buffer,
+        ready.currentColourOf.buffer,
       ]);
       return;
     }
