@@ -75,6 +75,8 @@ export interface Strings {
   legend: string;
   legendCapital: string;
   legendAbsorber: string;
+  legendOrphanSeat: string;
+  legendUnchangedSeat: string;
   legendAbsorbed: string;
   legendOrphan: string;
   legendUnchanged: string;
@@ -173,6 +175,8 @@ const ro: Strings = {
   legend: 'Legendă',
   legendCapital: 'Reședință de județ (centru)',
   legendAbsorber: 'Centru — primăria supraviețuiește',
+  legendOrphanSeat: 'Reședința unei grupări de comune mici',
+  legendUnchangedSeat: 'Comună neschimbată (propria reședință)',
   legendAbsorbed: 'Comună absorbită (aceeași culoare ca centrul ei)',
   legendOrphan: 'Grupare de comune mici',
   legendUnchanged: 'Neschimbat',
@@ -271,6 +275,8 @@ const en: Strings = {
   legend: 'Legend',
   legendCapital: 'County capital (a centre)',
   legendAbsorber: 'Centre — its administration survives',
+  legendOrphanSeat: 'Seat of a small-commune cluster',
+  legendUnchangedSeat: 'Unchanged commune (its own seat)',
   legendAbsorbed: 'Absorbed commune (same colour as its centre)',
   legendOrphan: 'Small-commune cluster',
   legendUnchanged: 'Unchanged',

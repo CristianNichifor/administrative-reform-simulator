@@ -37,6 +37,16 @@ export const UAT_OUTLINE = 'uat-outline';
 export const OVERLAYS = ['counties', 'regions', 'seats', 'capitals', 'roads'] as const;
 export type Overlay = (typeof OVERLAYS)[number];
 
+/**
+ * What kind of seat a marker represents.
+ *
+ * Every resulting unit has a seat, not only the gravitational ones: an orphan cluster keeps
+ * its largest member, and a commune nothing reached is its own seat. Marking only the
+ * gravitational centres left whole regions of the map with no indication of where their
+ * administration would sit.
+ */
+export const SEAT_KIND = { CAPITAL: 0, CENTRE: 1, ORPHAN: 2, UNCHANGED: 3 } as const;
+
 export const COUNTY_LINE_COLOUR = '#f2f4f7';
 export const REGION_LINE_COLOUR = '#7cc4de';
 export const SEAT_COLOUR = '#e6e9ee';
@@ -78,6 +88,9 @@ export function costColour(perResident: number, breaks: number[]): string {
   return COST_RAMP[step]!;
 }
 export const ORPHAN_COLOUR = '#b58547';
+/** Seat markers for the two kinds of unit that no centre created. */
+export const ORPHAN_SEAT_COLOUR = '#f0cf9a';
+export const UNCHANGED_SEAT_COLOUR = '#c2c6cc';
 export const UNCHANGED_COLOUR = '#8d8f93';
 export const ABSORBER_COLOUR = '#123f52';
 
@@ -114,8 +127,12 @@ export interface MapHandle {
   onSelect: (handler: (index: number | null) => void) => void;
   /** Show or hide a context layer. Roads are fetched the first time they are shown. */
   setOverlay: (overlay: Overlay, visible: boolean) => Promise<void>;
-  /** Highlight the seat points that are absorbing centres in the current scenario. */
-  setCentres: (isCentre: Uint8Array) => void;
+  /**
+   * Mark the seat of every resulting unit.
+   *
+   * `kindOf` carries -1 for a commune that is not a seat, otherwise SEAT_KIND.
+   */
+  setCentres: (kindOf: Int8Array) => void;
 }
 
 export async function createMap(container: HTMLElement, dataBase: string): Promise<MapHandle> {
@@ -255,14 +272,51 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     source: 'seats',
     layout: { visibility: 'none' },
     paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.6, 10, 8],
       // County capitals are gold, other centres white: the distinction a reader asks for
       // first is "which of these is the capital", and it should not need a click.
-      'circle-color': ['case', ['get', 'capital'], CAPITAL_COLOUR, SEAT_COLOUR],
+      'circle-color': [
+        'match',
+        ['coalesce', ['feature-state', 'kind'], -1],
+        SEAT_KIND.CAPITAL, CAPITAL_COLOUR,
+        SEAT_KIND.CENTRE, SEAT_COLOUR,
+        SEAT_KIND.ORPHAN, ORPHAN_SEAT_COLOUR,
+        SEAT_KIND.UNCHANGED, UNCHANGED_SEAT_COLOUR,
+        'rgba(0,0,0,0)',
+      ],
+      // Orphan and unchanged seats are drawn smaller: they are the administration that
+      // happens to survive, not a centre that pulled anything in, and at national zoom a
+      // full-size marker on every one of them buries the centres that did.
+      //
+      // The zoom interpolation has to be the outermost expression — MapLibre rejects a
+      // zoom curve nested inside `match`, and rejecting it invalidates the entire layer,
+      // which is why every marker vanished rather than just resizing.
+      'circle-radius': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        6,
+        [
+          'match',
+          ['coalesce', ['feature-state', 'kind'], -1],
+          SEAT_KIND.CAPITAL, 4.2,
+          SEAT_KIND.CENTRE, 3.4,
+          2.2,
+        ],
+        10,
+        [
+          'match',
+          ['coalesce', ['feature-state', 'kind'], -1],
+          SEAT_KIND.CAPITAL, 9,
+          SEAT_KIND.CENTRE, 7.5,
+          5,
+        ],
+      ],
       'circle-stroke-color': '#0f1216',
       'circle-stroke-width': 1.4,
-      'circle-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
-      'circle-stroke-opacity': ['case', ['boolean', ['feature-state', 'centre'], false], 1, 0],
+      'circle-opacity': ['case', ['>=', ['coalesce', ['feature-state', 'kind'], -1], 0], 1, 0],
+      'circle-stroke-opacity': [
+        'case', ['>=', ['coalesce', ['feature-state', 'kind'], -1], 0], 1, 0,
+      ],
     },
   });
 
@@ -311,9 +365,9 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
   };
 
-  const setCentres = (isCentre: Uint8Array): void => {
-    for (let i = 0; i < isCentre.length; i += 1) {
-      map.setFeatureState({ source: 'seats', id: i }, { centre: isCentre[i] === 1 });
+  const setCentres = (kindOf: Int8Array): void => {
+    for (let i = 0; i < kindOf.length; i += 1) {
+      map.setFeatureState({ source: 'seats', id: i }, { kind: kindOf[i] });
     }
   };
 

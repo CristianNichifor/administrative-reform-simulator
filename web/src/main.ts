@@ -17,8 +17,11 @@ import {
   COUNTY_LINE_COLOUR,
   ORPHAN_COLOUR,
   REGION_LINE_COLOUR,
+  ORPHAN_SEAT_COLOUR,
   ROAD_COLOUR,
   SEAT_COLOUR,
+  SEAT_KIND,
+  UNCHANGED_SEAT_COLOUR,
   UNCHANGED_COLOUR,
   regionColour,
   type Overlay,
@@ -215,6 +218,8 @@ async function boot(): Promise<void> {
     const rows: [string, string, boolean?][] = [
       [CAPITAL_COLOUR, strings.legendCapital, true],
       [SEAT_COLOUR, strings.legendAbsorber, true],
+      [ORPHAN_SEAT_COLOUR, strings.legendOrphanSeat, true],
+      [UNCHANGED_SEAT_COLOUR, strings.legendUnchangedSeat, true],
       [regionColour(0, false), strings.legendAbsorbed],
       [ORPHAN_COLOUR, strings.legendOrphan],
       [UNCHANGED_COLOUR, strings.legendUnchanged],
@@ -457,13 +462,23 @@ async function boot(): Promise<void> {
       costPerResident,
       costBreaks,
     );
-    // The set of absorbing centres changes with every scenario, so the overlay is refreshed
-    // from feature state rather than the layer being rebuilt.
-    const isCentre = new Uint8Array(message.regionOf.length);
+    // Every resulting unit gets a seat marker, not only the gravitational ones. An orphan
+    // cluster keeps its largest member and a commune nothing reached is its own seat;
+    // marking only the centres left whole stretches of the map with no indication of where
+    // the administration would sit.
+    const kindOf = new Int8Array(message.regionOf.length).fill(-1);
     for (let i = 0; i < message.regionOf.length; i += 1) {
-      if (message.regionOf[i] === i && message.tierOf[i] !== -1) isCentre[i] = 1;
+      if (message.regionOf[i] !== i) continue;
+      kindOf[i] =
+        message.tierOf[i] !== -1
+          ? ready!.attributes.isCapital[i]
+            ? SEAT_KIND.CAPITAL
+            : SEAT_KIND.CENTRE
+          : isOrphanRegion[i] === 1
+            ? SEAT_KIND.ORPHAN
+            : SEAT_KIND.UNCHANGED;
     }
-    mapHandle.setCentres(isCentre);
+    mapHandle.setCentres(kindOf);
     renderSummary();
     renderDetail();
     el<HTMLElement>('#loading').hidden = true;
