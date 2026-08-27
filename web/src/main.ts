@@ -15,7 +15,6 @@ import {
   CAPITAL_COLOUR,
   COST_RAMP,
   COUNTY_LINE_COLOUR,
-  ORPHAN_COLOUR,
   REGION_LINE_COLOUR,
   ORPHAN_SEAT_COLOUR,
   ROAD_COLOUR,
@@ -23,9 +22,9 @@ import {
   SEAT_KIND,
   UNCHANGED_SEAT_COLOUR,
   UNCHANGED_COLOUR,
-  regionColour,
   type Overlay,
 } from './map/map';
+import { COOL_PALETTE, WARM_PALETTE } from './model/colour';
 import { DEFAULT_PARAMS, REASON, type Params, type ViewMode } from './model/types';
 import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
@@ -198,7 +197,7 @@ async function boot(): Promise<void> {
         if (latest) {
           mapHandle.applyAssignment(
             latest.regionOf,
-            isOrphanRegion,
+            latest.colourOf,
             latest.tierOf,
             scenario.mode,
             costPerResident,
@@ -226,8 +225,8 @@ async function boot(): Promise<void> {
       [SEAT_COLOUR, strings.legendAbsorber, true],
       [ORPHAN_SEAT_COLOUR, strings.legendOrphanSeat, true],
       [UNCHANGED_SEAT_COLOUR, strings.legendUnchangedSeat, true],
-      [regionColour(0, false), strings.legendAbsorbed],
-      [ORPHAN_COLOUR, strings.legendOrphan],
+      [COOL_PALETTE[0]!, strings.legendAbsorbed],
+      [WARM_PALETTE[0]!, strings.legendOrphan],
       [UNCHANGED_COLOUR, strings.legendUnchanged],
     ];
     el('#legend').innerHTML =
@@ -462,7 +461,7 @@ async function boot(): Promise<void> {
 
     mapHandle.applyAssignment(
       message.regionOf,
-      isOrphanRegion,
+      message.colourOf,
       message.tierOf,
       scenario.mode,
       costPerResident,

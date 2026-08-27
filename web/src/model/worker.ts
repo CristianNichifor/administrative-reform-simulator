@@ -7,6 +7,7 @@
  */
 
 import { decode } from './load';
+import { assignUnitColours } from './colour';
 import { runModel } from './model';
 import type { Attributes, Manifest, ModelData, Params } from './types';
 
@@ -38,6 +39,8 @@ export interface ResultMessage {
   type: 'result';
   token: number;
   regionOf: Uint16Array;
+  /** Palette index per UAT, chosen so no two touching units match. */
+  colourOf: Uint8Array;
   reasonOf: Uint8Array;
   overlapOf: Uint8Array;
   tierOf: Int8Array;
@@ -110,12 +113,22 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       if (!data) throw new Error('compute before init');
       const started = performance.now();
       const result = runModel(data, message.params);
+
+      // A unit is orphan-tier when its seat is not a centre: absorbed units are always
+      // centred on one, clusters never are.
+      const isOrphanUnit = new Uint8Array(data.uatCount);
+      for (let i = 0; i < data.uatCount; i += 1) {
+        const unit = result.regionOf[i]!;
+        if (result.tierOf[unit] === -1) isOrphanUnit[unit] = 1;
+      }
+      const colourOf = assignUnitColours(data, result.regionOf, isOrphanUnit);
       const elapsedMs = performance.now() - started;
 
       const payload: ResultMessage = {
         type: 'result',
         token: message.token,
         regionOf: result.regionOf,
+        colourOf,
         reasonOf: result.reasonOf,
         overlapOf: result.overlapOf,
         tierOf: result.tierOf,
@@ -132,6 +145,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
       // thread from doing structured-clone work on every frame of a drag.
       self.postMessage(payload, [
         payload.regionOf.buffer,
+        payload.colourOf.buffer,
         payload.reasonOf.buffer,
         payload.overlapOf.buffer,
         payload.tierOf.buffer,

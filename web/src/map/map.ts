@@ -16,6 +16,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
+import { PALETTE } from '../model/colour';
 import type { ViewMode } from '../model/types';
 
 // MapLibre 6 ships its worker as a separate file instead of inlining it, and a bundled
@@ -117,7 +118,7 @@ export interface MapHandle {
   /** Paint every UAT from a region assignment, in the given view mode. */
   applyAssignment: (
     regionOf: Uint16Array,
-    isOrphanRegion: Uint8Array,
+    colourOf: Uint8Array,
     tierOf: Int8Array,
     mode: ViewMode,
     costPerResident: Float32Array,
@@ -402,7 +403,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
 
   const applyAssignment = (
     regionOf: Uint16Array,
-    isOrphanRegion: Uint8Array,
+    colourOf: Uint8Array,
     tierOf: Int8Array,
     mode: ViewMode,
     costPerResident: Float32Array,
@@ -410,16 +411,13 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
   ): void => {
     for (let i = 0; i < regionOf.length; i += 1) {
       const region = regionOf[i]!;
-      const orphan = isOrphanRegion[region] === 1;
       const isAbsorber = region === i && tierOf[i] !== -1;
       // The centre takes the same fill as everything it absorbed, so a resulting unit
       // reads as one shape rather than a ring around a differently-coloured hole. Which
       // commune is the centre is shown by the marker on top instead — that is what the
       // marker is for, and it does not cost the shape its legibility.
       const colour =
-        mode === 'cost'
-          ? costColour(costPerResident[i]!, costBreaks)
-          : regionColour(region, orphan);
+        mode === 'cost' ? costColour(costPerResident[i]!, costBreaks) : PALETTE[colourOf[i]!]!;
       map.setFeatureState(
         { source: SOURCE_ID, id: i },
         { colour, absorber: mode === 'regions' && isAbsorber },

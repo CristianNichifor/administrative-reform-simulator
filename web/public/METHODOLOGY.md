@@ -158,6 +158,21 @@ can recompute in milliseconds instead of re-doing the geometry in your browser.
 **The absorber threshold cannot go below 5,000.** Reach is only precomputed for localities
 at or above that size, so a lower value would need the data rebuilt and republished.
 
+### Reading the map
+
+Every resulting unit is given a colour that none of the units touching it share, so two or
+three separate units can never read as one shape. The constraint deliberately crosses county
+lines: two units either side of a county boundary touch on screen, and if they matched, the
+boundary between them would disappear.
+
+Units built by absorption take cool colours, small-commune clusters warm ones, so the two
+kinds stay distinguishable — a cluster follows a different rule. Where a cluster's every warm
+colour is already taken by a neighbour it borrows a cool one, because two adjacent units
+matching is always worse than a cluster drawn in the wrong family.
+
+The seat of every unit is marked: gold for a county capital, white for another centre, and a
+smaller pale dot for a cluster seat or a commune nothing reached.
+
 ### Where the data comes from
 
 | Layer | Source | Vintage |
