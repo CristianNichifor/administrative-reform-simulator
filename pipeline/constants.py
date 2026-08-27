@@ -154,9 +154,25 @@ def admin_rank_of(natlevname: str) -> int:
     Shared rather than duplicated: the model orders seats by this and the web export ships
     it, and two hand-written copies of the same string matching would drift silently.
     """
+    # Order matters, and so does matching the whole phrase. SIRUTA writes exactly five
+    # level names:
+    #
+    #   Sectoarele municipiului Bucuresti
+    #   Municipiu resedinta de judet
+    #   Municipiu, altul decat resedinta de judet
+    #   Oras
+    #   Comuna
+    #
+    # Two of them are substring traps. "Sectoarele" does not contain "sector", so a test for
+    # "sector" silently ranked the six sectors as municipii. And "altul decat resedinta de
+    # judet" contains "resedinta de judet", so a test for that phrase ranked every ordinary
+    # municipiu as a county seat — 92 units carried county-seat standing and one carried
+    # municipiu standing, which is the wrong way round.
     text = str(natlevname).lower()
-    if "sector" in text:
+    if "sectoarele" in text:
         return ADMIN_RANK_SECTOR
+    if "altul decat" in text:
+        return ADMIN_RANK_MUNICIPIU
     if "resedinta de judet" in text:
         return ADMIN_RANK_COUNTY_SEAT
     if "municipiu" in text:

@@ -354,6 +354,20 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         result.seeds.pop(siruta, None)
     result.held = dict.fromkeys(sorted(absorbed_into_capital), False)
 
+    # Nothing inside a capital's reach may be promoted to a centre.
+    #
+    # Standing centres down runs once, here, before promotion. Without this the promotion
+    # loop simply put new ones back inside the same reach: Ganeasa (5,402) and Cornetu
+    # (7,389) both sit inside Bucharest's radius and both came out units of a single UAT,
+    # because they became centres *after* the rule that would have stood them down had
+    # already run. A centre the capital would immediately take is not a centre.
+    capital_reach = {
+        siruta
+        for capital, covered in _capital_cores(data, params, result).items()
+        for siruta in covered
+        if _may_absorb(data, capital, siruta)
+    }
+
     for county_code in sorted(data.by_county):
         # Bucharest is one city, not a county needing a spread of centres. Promotion here
         # was making four of its six sectors into centres in their own right — exactly the
@@ -378,6 +392,7 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
             # removed from `seeds` would otherwise let it be promoted straight back, which
             # is how Oras Babeni came to stand alone inside Ramnicu Valcea's reach.
             and s not in result.held
+            and s not in capital_reach
         ]
         covered: set[str] = set()
         for seed in in_county:
@@ -552,6 +567,15 @@ def _capital_core(data: Data, params: Params, capital: str, tier: int) -> set[st
     return core
 
 
+def _capital_cores(data: Data, params: Params, result: Result) -> dict[str, set[str]]:
+    """Each capital's reach, keyed by the capital."""
+    return {
+        capital: _capital_core(data, params, capital, tier)
+        for capital, tier in result.seeds.items()
+        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
+    }
+
+
 def _capital_shadow(data: Data, params: Params, result: Result) -> set[str]:
     """Centres standing inside a capital's reach, which the capital takes over.
 
@@ -565,20 +589,33 @@ def _capital_shadow(data: Data, params: Params, result: Result) -> set[str]:
     Buftea, out on the north-west edge, so without this Otopeni, Voluntari and Pantelimon
     stay centres and claim themselves before the city ever arrives.
     """
-    reach: dict[str, set[str]] = {}
-    for capital, tier in result.seeds.items():
-        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
-            reach[capital] = _capital_core(data, params, capital, tier)
+    reach = _capital_cores(data, params, result)
 
     shadowed: set[str] = set()
     for absorber, tier in result.seeds.items():
-        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL):
+        if tier == TIER_NATIONAL_CAPITAL:
             continue
         for capital, covered in reach.items():
-            if absorber in covered and _may_absorb(data, capital, absorber):
-                shadowed.add(absorber)
-                break
+            if capital == absorber or absorber not in covered:
+                continue
+            if not _may_absorb(data, capital, absorber):
+                continue
+            # A county capital is normally untouchable. The exception is Bucharest, which
+            # stands down Ilfov's: Buftea sits inside the city's reach and, protected as a
+            # capital, came out a unit of one UAT and 20,577 people in the middle of the
+            # metropolitan area. Only the national capital may do this, and only across the
+            # one county line the model allows.
+            if tier == TIER_COUNTY_CAPITAL and reach_tier(result, capital) != (
+                TIER_NATIONAL_CAPITAL
+            ):
+                continue
+            shadowed.add(absorber)
+            break
     return shadowed
+
+
+def reach_tier(result: Result, capital: str) -> int:
+    return result.seeds.get(capital, TIER_PROMOTED + 1)
 
 
 def _shadowing_capital(data: Data, params: Params, result: Result, siruta: str) -> str | None:

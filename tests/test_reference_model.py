@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 264
+SNAPSHOT_DEFAULT_REGIONS = 260
 SNAPSHOT_DEFAULT_UATS = 3186
 
 

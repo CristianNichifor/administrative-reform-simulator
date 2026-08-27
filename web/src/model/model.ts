@@ -102,6 +102,8 @@ function shadowingCapital(
   let bestTier = 0;
   let bestStep = 0;
   for (const [capital, core] of cores) {
+    // A capital that has itself been stood down is no longer one.
+    if (tierOf[capital] === -1) continue;
     if (!core.has(uat) || !mayAbsorb(data, capital, uat)) continue;
     const tier = tierOf[capital]!;
     let step = Infinity;
@@ -271,14 +273,45 @@ function selectSeeds(data: ModelData, params: Params): {
   }
   const held = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) {
-    if (tierOf[i] === -1 || isCapitalTier(tierOf[i]!)) continue;
+    if (tierOf[i] === -1 || tierOf[i] === TIER_NATIONAL_CAPITAL) continue;
     for (const [capital, core] of cores) {
-      if (core.has(i) && mayAbsorb(data, capital, i)) { held.add(i); break; }
+      if (capital === i || !core.has(i) || !mayAbsorb(data, capital, i)) continue;
+      // A county capital is normally untouchable. The exception is Bucharest, which stands
+      // down Ilfov's: Buftea sits inside the city's reach and, protected as a capital, came
+      // out a unit of one UAT and 20,577 people in the middle of the metropolitan area.
+      // Only the national capital may do this, and only across the one county line allowed.
+      if (tierOf[i] === TIER_COUNTY_CAPITAL && tierOf[capital] !== TIER_NATIONAL_CAPITAL) {
+        continue;
+      }
+      held.add(i);
+      break;
     }
   }
+
+  // Nothing inside a capital's reach may be promoted to a centre.
+  //
+  // Standing centres down runs once, before promotion. Without this the promotion loop put
+  // new ones back inside the same reach: Ganeasa (5,402) and Cornetu (7,389) both sit inside
+  // Bucharest's radius and both came out units of a single UAT, because they became centres
+  // *after* the rule that would have stood them down had run. A centre the capital would
+  // immediately take is not a centre.
+  // Demote every stood-down centre *before* working out who reserved it. Done in one pass,
+  // a capital demoted earlier in the loop is still a key in `cores` but reads as tier -1,
+  // which sorts ahead of the national capital — Buftea, demoted first, captured Otopeni and
+  // Chiajna from Bucharest that way.
+  for (const uat of held) tierOf[uat] = -1;
+
+  // Built after the demotion, not before: a capital that has itself been stood down is no
+  // longer one, and its reach must not go on blocking promotions. Buftea's did, which kept
+  // Peris out of the pool in the port while the reference promoted it.
+  const capitalReach = new Set<number>();
+  for (const [capital, core] of cores) {
+    if (tierOf[capital] === -1) continue;
+    for (const u of core) if (mayAbsorb(data, capital, u)) capitalReach.add(u);
+  }
+
   const reservedFor = new Map<number, number>();
   for (const uat of [...held].sort((a, b) => a - b)) {
-    tierOf[uat] = -1;
     const capital = shadowingCapital(data, tierOf, cores, uat);
     if (capital !== undefined) reservedFor.set(uat, capital);
   }
@@ -323,7 +356,8 @@ function selectSeeds(data: ModelData, params: Params): {
       (i) =>
         (isAbsorber[i] === 1 || data.attributes.adminRank[i]! <= ADMIN_RANK_ORAS) &&
         tierOf[i] === -1 &&
-        !held.has(i),
+        !held.has(i) &&
+        !capitalReach.has(i),
     );
 
     const covered = new Uint8Array(data.uatCount);

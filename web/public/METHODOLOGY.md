@@ -43,7 +43,11 @@ duplication this exercise is about.
 county boundary is absolute. Around the capital it runs through continuous built-up area:
 Otopeni, Voluntari, Pantelimon and Popești-Leordeni are the city's suburbs in every
 practical sense, and a model that stops at the line describes an administration rather than
-a city. The resulting unit is 2.18 million across 35 UATs, 29 of them in Ilfov.
+a city. The resulting unit is 2.22 million across 38 UATs, 32 of them in Ilfov — and it
+includes Buftea, Ilfov's own county capital. A county capital is otherwise untouchable; the
+national capital is allowed to stand this one down, because Buftea sits inside the city's
+reach and, protected, came out a unit of a single UAT and 20,577 people in the middle of the
+metropolitan area.
 
 The candidacy grid keeps the Bucharest-to-Ilfov pairs for the same reason. Dropping every
 cross-county pair left the city able to see only the communes directly bordering a sector,
@@ -131,8 +135,14 @@ which is where a second centre is actually useful.
 A stood-down centre is *reserved* for its capital, not handed to it. Growth still has to
 arrive over the capital's own territory, which is what keeps every unit in one piece:
 assigning Cumpăna directly produced a Constanța in two disconnected halves. At the default
-settings 111 centres are stood down, and every one of them is reached by the capital
-reserved for it.
+settings 112 centres are stood down, and every one of them is reached by the capital reserved
+for it.
+
+**Nothing inside a capital's reach may be promoted to a centre either.** Standing centres
+down runs once, before promotion; without this the promotion step simply put new ones back
+inside the same reach. Găneasa (5,402) and Cornetu (7,389) both sit inside București's radius
+and both came out units of a single UAT, because they became centres *after* the rule that
+would have stood them down had already run.
 
 A commune joins whichever centre reaches it **along the shortest road**. Distance is
 measured between seat villages, on the real road network, and accumulated along the path
@@ -384,7 +394,10 @@ care este vorba aici.
 limita de județ este absolută. În jurul capitalei ea trece prin construit continuu: Otopeni,
 Voluntari, Pantelimon și Popești-Leordeni sunt suburbiile orașului în orice sens practic, iar
 un model care se oprește la limită descrie o administrație, nu un oraș. Unitatea rezultată
-are 2,18 milioane de locuitori în 35 de UAT-uri, dintre care 29 în Ilfov.
+are 2,22 milioane de locuitori în 38 de UAT-uri, dintre care 32 în Ilfov — și include Buftea,
+reședința județului Ilfov. O reședință de județ este altfel intangibilă; capitala are voie să
+o oprească pe aceasta, pentru că Buftea se află în raza orașului și, protejată, ieșea o
+unitate de un singur UAT și 20.577 de locuitori în mijlocul zonei metropolitane.
 
 Grila de candidatură păstrează perechile București–Ilfov din același motiv. Eliminarea
 tuturor perechilor inter-județene lăsa orașul să vadă doar comunele cu graniță directă la un
@@ -457,7 +470,13 @@ unde un al doilea centru chiar folosește.
 Un centru oprit este *rezervat* reședinței, nu atribuit direct. Creșterea trebuie să ajungă
 la el pe teritoriul propriu al reședinței, ceea ce menține fiecare unitate dintr-o singură
 bucată: atribuirea directă a Cumpenei producea o Constanță în două jumătăți neconectate. La
-setările implicite 111 centre sunt oprite, iar fiecare este ajuns de reședința rezervată lui.
+setările implicite 112 centre sunt oprite, iar fiecare este ajuns de reședința rezervată lui.
+
+**Nimic aflat în raza unei reședințe nu poate fi promovat la rang de centru.** Oprirea
+centrelor rulează o singură dată, înainte de promovare; fără această regulă pasul de
+promovare punea altele la loc în aceeași rază. Găneasa (5.402) și Cornetu (7.389) sunt ambele
+în raza Bucureștiului și ieșeau amândouă unități de un singur UAT, pentru că deveneau centre
+*după* ce regula care le-ar fi oprit rulase deja.
 
 **Fiecare unitate poartă numele celei mai importante localități din ea.** Ce comune ajung
 împreună este decis de drumuri și raze; aici se stabilește doar care membru dă sediul. Este
