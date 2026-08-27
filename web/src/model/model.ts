@@ -24,6 +24,7 @@ import {
   type ModelData,
   type ModelResult,
   type Params,
+  type Pin,
   type RadiusSlice,
 } from './types';
 
@@ -876,6 +877,7 @@ function reseatUnits(
   regionOf: Uint16Array,
   tierOf: Int8Array,
   orphanSeats: Set<number>,
+  only?: Set<number>,
 ): void {
   const members = new Map<number, number[]>();
   for (let i = 0; i < data.uatCount; i += 1) {
@@ -900,6 +902,7 @@ function reseatUnits(
 
   for (const oldSeat of [...members.keys()].sort((a, b) => a - b)) {
     const list = members.get(oldSeat)!;
+    if (only && !list.some((m) => only.has(m))) continue;
     const county = data.countyOf[oldSeat]!;
     const holdsTheCap = (candidate: number): boolean => {
       if (params.maxRoadM <= 0) return true;
@@ -922,7 +925,96 @@ function reseatUnits(
   }
 }
 
-export function runModel(data: ModelData, params: Params): ModelResult {
+/**
+ * Apply manual overrides on top of a finished result.
+ *
+ * Deliberately the last thing that happens, and deliberately outside the rules. A pin is a
+ * stated disagreement with the model, not a change to it: the rules run untouched, then the
+ * named UATs are moved, and the panel shows them as placed by hand. With no pins nothing
+ * here executes and the result is exactly the reference model's.
+ *
+ * A pin can do what the rules never do — leave a unit in two disconnected pieces, by taking
+ * a commune out of the middle of one. That is reported rather than prevented: refusing the
+ * override would hide the consequence, and the point of the override is that the person
+ * making it has a reason the model does not know about.
+ */
+function applyPins(
+  data: ModelData,
+  regionOf: Uint16Array,
+  reasonOf: Uint8Array,
+  tierOf: Int8Array,
+  orphanSeats: Set<number>,
+  params: Params,
+  pins: Pin[],
+): Pick<ModelResult, 'pinsApplied' | 'pinsRejected' | 'splitUnits'> {
+  const pinsApplied: Pin[] = [];
+  const pinsRejected: ModelResult['pinsRejected'] = [];
+  if (pins.length === 0) return { pinsApplied, pinsRejected, splitUnits: [] };
+
+  for (const pin of pins) {
+    if (pin.uat < 0 || pin.uat >= data.uatCount || pin.seat < 0 || pin.seat >= data.uatCount) {
+      pinsRejected.push({ pin, why: 'not-a-seat' });
+      continue;
+    }
+    // The target has to be a unit that currently exists. Sliders move, and a pin written
+    // against a seat that a different parameter set never produces is stale, not wrong.
+    let targetIsSeat = false;
+    for (let i = 0; i < data.uatCount; i += 1) {
+      if (regionOf[i] === pin.seat) { targetIsSeat = true; break; }
+    }
+    if (!targetIsSeat) { pinsRejected.push({ pin, why: 'not-a-seat' }); continue; }
+    if (!mayAbsorb(data, pin.seat, pin.uat)) { pinsRejected.push({ pin, why: 'county' }); continue; }
+    if (regionOf[pin.uat] === pin.seat) {
+      pinsRejected.push({ pin, why: 'already-there' });
+      continue;
+    }
+    regionOf[pin.uat] = pin.seat;
+    reasonOf[pin.uat] = REASON.MANUAL_PIN;
+    pinsApplied.push(pin);
+  }
+
+  if (pinsApplied.length === 0) return { pinsApplied, pinsRejected, splitUnits: [] };
+
+  // A pinned-away seat leaves its former unit headless. Re-elect from what is left rather
+  // than dissolving it — the other members did not ask to move.
+  for (const pin of pinsApplied) {
+    if (regionOf[pin.uat] === pin.uat) continue;
+    tierOf[pin.uat] = -1;
+    orphanSeats.delete(pin.uat);
+    const stranded: number[] = [];
+    for (let i = 0; i < data.uatCount; i += 1) if (regionOf[i] === pin.uat) stranded.push(i);
+    if (stranded.length === 0) continue;
+    reseatUnits(data, params, regionOf, tierOf, orphanSeats, new Set(stranded));
+  }
+
+  // Contiguity, checked only because a pin can break it.
+  const members = new Map<number, number[]>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    const seat = regionOf[i]!;
+    let list = members.get(seat);
+    if (!list) { list = []; members.set(seat, list); }
+    list.push(i);
+  }
+  const splitUnits: number[] = [];
+  for (const [seat, list] of members) {
+    if (list.length < 2) continue;
+    const inUnit = new Set(list);
+    const seen = new Set([list[0]!]);
+    const stack = [list[0]!];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      for (let e = data.neighbourStart[current]!; e < data.neighbourStart[current + 1]!; e += 1) {
+        const nb = data.neighbours[e]!;
+        if (inUnit.has(nb) && !seen.has(nb)) { seen.add(nb); stack.push(nb); }
+      }
+    }
+    if (seen.size !== inUnit.size) splitUnits.push(seat);
+  }
+  splitUnits.sort((a, b) => a - b);
+  return { pinsApplied, pinsRejected, splitUnits };
+}
+
+export function runModel(data: ModelData, params: Params, pins: Pin[] = []): ModelResult {
   const regionOf = new Uint16Array(data.uatCount).fill(NO_REGION);
   const reasonOf = new Uint8Array(data.uatCount).fill(REASON.UNCHANGED);
   const overlapOf = new Uint8Array(data.uatCount);
@@ -952,6 +1044,10 @@ export function runModel(data: ModelData, params: Params): ModelResult {
   reseatUnits(data, params, regionOf, tierOf, orphanSeats);
   const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
   reseatUnits(data, params, regionOf, tierOf, orphanSeats);
+
+  const { pinsApplied, pinsRejected, splitUnits } = applyPins(
+    data, regionOf, reasonOf, tierOf, orphanSeats, params, pins,
+  );
 
   const regionSeats = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) regionSeats.add(regionOf[i]!);
@@ -984,5 +1080,8 @@ export function runModel(data: ModelData, params: Params): ModelResult {
     savingsAdminRon,
     savingsOperatingRon,
     underSeededCounties: underSeeded,
+    pinsApplied,
+    pinsRejected,
+    splitUnits,
   };
 }

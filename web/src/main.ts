@@ -157,6 +157,8 @@ async function boot(): Promise<void> {
     renderLayers();
     renderSummary();
     renderDetail();
+    renderPins();
+    renderAudit();
   };
 
   const overlayState: Record<Overlay, boolean> = {
@@ -403,6 +405,8 @@ async function boot(): Promise<void> {
         return strings.whyOrphanSeat;
       case REASON.ORPHAN_MEMBER:
         return strings.whyOrphanMember;
+      case REASON.MANUAL_PIN:
+        return strings.pinWhy;
       case REASON.TARGET_MERGED:
         return strings.whyTargetMerge.replace(
           '{target}',
@@ -411,6 +415,146 @@ async function boot(): Promise<void> {
       default:
         return '';
     }
+  };
+
+  /** Units a given UAT could legally be pinned to: existing seats it may join. */
+  const pinTargets = (index: number): number[] => {
+    const info = ready;
+    const result = latest;
+    if (!info || !result) return [];
+    const here = result.regionOf[index]!;
+    const seats = new Set<number>();
+    for (let i = 0; i < result.regionOf.length; i += 1) seats.add(result.regionOf[i]!);
+    const county = info.attributes.county[index];
+    return [...seats]
+      .filter((seat) => {
+        if (seat === here) return false;
+        const seatCounty = info.attributes.county[seat];
+        if (seatCounty === county) return true;
+        // The one county line the model allows, in the one direction it allows it.
+        return seatCounty === 'B' && county === 'IF';
+      })
+      .sort((a, b) => unitName(info, a).localeCompare(unitName(info, b), scenario.lang));
+  };
+
+  const setPin = (uat: number, seat: number | null): void => {
+    scenario.pins = scenario.pins.filter((p) => p.uat !== uat);
+    if (seat !== null) scenario.pins.push({ uat, seat });
+    schedule();
+  };
+
+  const renderPins = (): void => {
+    const box = el<HTMLElement>('#pins');
+    if (!ready || !latest) { box.hidden = true; return; }
+    box.hidden = false;
+    if (scenario.pins.length === 0) {
+      box.innerHTML = `<h4>${strings.pinHeading}</h4><p class="muted">${strings.pinNone}</p>`;
+      return;
+    }
+    const stale = new Set(latest.pinsRejected.map((r) => r.pin.uat));
+    box.innerHTML = `
+      <h4>${strings.pinHeading} <span class="count">${scenario.pins.length}</span></h4>
+      <ul class="pin-list">
+        ${scenario.pins
+          .map(
+            (pin) => `<li${stale.has(pin.uat) ? ' class="stale"' : ''}>
+              <span class="pin-uat">${ready!.attributes.name[pin.uat]}</span>
+              <span class="pin-arrow">→</span>
+              <span class="pin-seat">${unitName(ready!, pin.seat)}</span>
+              ${stale.has(pin.uat) ? `<em class="pin-note">${strings.pinStale}</em>` : ''}
+              <button data-unpin="${pin.uat}" title="${strings.pinRemove}">×</button>
+            </li>`,
+          )
+          .join('')}
+      </ul>
+      <button class="link" data-clear-pins>${strings.pinClearAll}</button>`;
+
+    box.querySelectorAll<HTMLButtonElement>('[data-unpin]').forEach((button) => {
+      button.addEventListener('click', () => setPin(Number(button.dataset.unpin), null));
+    });
+    box.querySelector<HTMLButtonElement>('[data-clear-pins]')?.addEventListener('click', () => {
+      scenario.pins = [];
+      schedule();
+    });
+  };
+
+  /**
+   * Units worth a second look.
+   *
+   * Not a list of errors — the rules are deterministic and these are all legal outcomes.
+   * It exists so the odd cases can be found deliberately instead of stumbled on while
+   * panning the map, which is how every one of them has been found so far.
+   */
+  const renderAudit = (): void => {
+    const box = el<HTMLElement>('#audit');
+    if (!ready || !latest) { box.hidden = true; return; }
+    box.hidden = false;
+
+    const members = new Map<number, number[]>();
+    for (let i = 0; i < latest.regionOf.length; i += 1) {
+      const seat = latest.regionOf[i]!;
+      let list = members.get(seat);
+      if (!list) { list = []; members.set(seat, list); }
+      list.push(i);
+    }
+
+    const single: number[] = [];
+    const below: number[] = [];
+    const outranked: number[] = [];
+    for (const [seat, list] of members) {
+      if (list.length === 1) single.push(seat);
+      const pop = list.reduce((total, i) => total + ready!.population[i]!, 0);
+      if (scenario.params.pTarget > 0 && pop < scenario.params.pTarget) below.push(seat);
+      if (list.some((i) => ready!.attributes.adminRank[i]! < ready!.attributes.adminRank[seat]!)) {
+        outranked.push(seat);
+      }
+    }
+
+    const groups: [string, number[]][] = [
+      [strings.auditSingle, single],
+      [strings.auditBelowTarget, below],
+      [strings.auditOutranked, outranked],
+      [strings.auditSplit, latest.splitUnits],
+    ];
+    const shown = groups.filter(([, list]) => list.length > 0);
+
+    box.innerHTML = `
+      <h4>${strings.auditHeading}</h4>
+      <p class="muted">${strings.auditIntro}</p>
+      ${
+        shown.length === 0
+          ? `<p class="muted">${strings.auditClean}</p>`
+          : shown
+              .map(
+                ([label, list]) => `
+        <details>
+          <summary>${label} <span class="count">${formatNumber(list.length, scenario.lang)}</span></summary>
+          <ul class="audit-list">
+            ${list
+              .slice()
+              .sort((a, b) => unitName(ready!, a).localeCompare(unitName(ready!, b), scenario.lang))
+              .map(
+                (seat) =>
+                  `<li><button data-goto="${seat}">${unitName(ready!, seat)}</button>
+                   <span>${ready!.attributes.county[seat]}</span></li>`,
+              )
+              .join('')}
+          </ul>
+        </details>`,
+              )
+              .join('')
+      }`;
+
+    box.querySelectorAll<HTMLButtonElement>('[data-goto]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const seat = Number(button.dataset.goto);
+        scenario.selected = seat;
+        writeHash(scenario);
+        mapHandle.setSelected(seat);
+        mapHandle.flyTo(seat);
+        renderDetail();
+      });
+    });
   };
 
   const renderDetail = (): void => {
@@ -429,6 +573,7 @@ async function boot(): Promise<void> {
     }
     members.sort((a, b) => ready!.population[b]! - ready!.population[a]!);
 
+    const currentPin = scenario.pins.find((p) => p.uat === index)?.seat ?? null;
     const orphan = isOrphanRegion[region] === 1;
     const sum = (series: Float32Array): number =>
       members.reduce((total, i) => total + series[i]!, 0);
@@ -501,17 +646,43 @@ async function boot(): Promise<void> {
         }
         <p class="county-rule">${strings.whyCountyRule.replace('{county}', ready.attributes.county[region]!)}</p>
       </div>
+      ${latest.splitUnits.includes(region) ? `<p class="pin-warning">${strings.pinSplit}</p>` : ''}
+      <div class="pin-control">
+        <label for="pin-select">${strings.pinMoveTo}</label>
+        <select id="pin-select">
+          <option value="">${strings.pinKeepRules}</option>
+          ${pinTargets(index)
+            .map(
+              (seat) =>
+                `<option value="${seat}"${
+                  currentPin === seat ? ' selected' : ''
+                }>${unitName(ready!, seat)}</option>`,
+            )
+            .join('')}
+        </select>
+      </div>
       <ul class="members">
         ${members
           .map(
             (i) =>
-              `<li class="${i === region ? 'is-centre' : ''}">
-                 <span>${ready!.attributes.name[i]}</span>
+              `<li class="${i === region ? 'is-centre' : ''}${
+                 scenario.pins.some((p) => p.uat === i) ? ' is-pinned' : ''
+               }">
+                 <span>${ready!.attributes.name[i]}${
+                   scenario.pins.some((p) => p.uat === i)
+                     ? ` <em class="pin-badge">${strings.pinBadge}</em>`
+                     : ''
+                 }</span>
                  <span>${formatNumber(ready!.population[i]!, scenario.lang)}</span>
                </li>`,
           )
           .join('')}
       </ul>`;
+
+    panel.querySelector<HTMLSelectElement>('#pin-select')?.addEventListener('change', (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      setPin(index, value === '' ? null : Number(value));
+    });
   };
 
   // --- recompute loop ----------------------------------------------------------------
@@ -525,7 +696,7 @@ async function boot(): Promise<void> {
     requestAnimationFrame(() => {
       pending = false;
       token += 1;
-      worker.postMessage({ type: 'compute', params: scenario.params, token });
+      worker.postMessage({ type: 'compute', params: scenario.params, pins: scenario.pins, token });
     });
   };
 
@@ -565,6 +736,8 @@ async function boot(): Promise<void> {
     paint();
     renderSummary();
     renderDetail();
+    renderPins();
+    renderAudit();
     el<HTMLElement>('#loading').hidden = true;
   };
 
@@ -674,6 +847,8 @@ async function boot(): Promise<void> {
 
   el('#reset-btn').addEventListener('click', () => {
     scenario.params = { ...DEFAULT_PARAMS };
+    // Reset means the default scenario, and a scenario with overrides in it is not that.
+    scenario.pins = [];
     renderSliders();
     schedule();
   });

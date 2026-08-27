@@ -160,7 +160,22 @@ export const REASON = {
   ORPHAN_MEMBER: 6,
   UNCHANGED: 7,
   TARGET_MERGED: 8,
+  /** Placed by hand, overriding whatever the rules decided. */
+  MANUAL_PIN: 9,
 } as const;
+
+/**
+ * A manual override: put `uat` in the unit seated at `seat`, whatever the rules say.
+ *
+ * Pins are applied *after* the model has run and are not part of it. With no pins the
+ * result is exactly what the Python reference produces, which is what keeps the parity
+ * fixtures meaningful — an override is a stated disagreement with the rules, not a change
+ * to them, and the panel labels it as one.
+ */
+export interface Pin {
+  uat: number;
+  seat: number;
+}
 
 export interface ModelResult {
   /** One `REASON` code per UAT. */
@@ -180,4 +195,10 @@ export interface ModelResult {
   savingsAdminRon: number;
   savingsOperatingRon: number;
   underSeededCounties: string[];
+  /** Pins that were applied, in the order given. */
+  pinsApplied: Pin[];
+  /** Pins refused, with why — a stale target, or a county line the model forbids. */
+  pinsRejected: { pin: Pin; why: 'not-a-seat' | 'county' | 'already-there' }[];
+  /** Units left in more than one piece. Only pins can cause this; the rules cannot. */
+  splitUnits: number[];
 }

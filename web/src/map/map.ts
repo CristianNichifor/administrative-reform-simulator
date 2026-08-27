@@ -131,6 +131,8 @@ export interface MapHandle {
     costBreaks: number[],
   ) => void;
   setSelected: (index: number | null) => void;
+  /** Centre the map on a UAT's seat, wherever it is. */
+  flyTo: (index: number) => void;
   onSelect: (handler: (index: number | null) => void) => void;
   /** Fires as the pointer moves over the map; index is null when it leaves. */
   onHover: (handler: (index: number | null, x: number, y: number) => void) => void;
@@ -463,6 +465,41 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     for (const handler of viewHandlers) handler();
   });
 
+  /**
+   * Seat coordinates by UAT index, fetched once on first use.
+   *
+   * `querySourceFeatures` cannot answer this: it only sees tiles currently loaded, so a
+   * unit the user has never scrolled to is invisible to it — which is exactly the case
+   * jumping from a list needs to handle.
+   */
+  let seatLngLat: Map<number, [number, number]> | null = null;
+  let seatLoad: Promise<void> | null = null;
+  const loadSeats = (): Promise<void> => {
+    seatLoad ??= fetch(`${dataBase}seats.geojson`)
+      .then((response) => response.json())
+      .then((collection: { features: { id?: unknown; geometry: { type: string; coordinates: unknown } }[] }) => {
+        seatLngLat = new Map();
+        for (const feature of collection.features) {
+          if (typeof feature.id !== 'number' || feature.geometry.type !== 'Point') continue;
+          const [lng, lat] = feature.geometry.coordinates as [number, number];
+          seatLngLat.set(feature.id as number, [lng, lat]);
+        }
+      })
+      .catch(() => {
+        // A failed jump is a non-event: the panel already changed, the map just does not move.
+        seatLngLat = new Map();
+      });
+    return seatLoad;
+  };
+
+  const flyTo = (index: number): void => {
+    void loadSeats().then(() => {
+      const target = seatLngLat?.get(index);
+      if (!target) return;
+      map.flyTo({ center: target, zoom: Math.max(map.getZoom(), 8.5), duration: 800 });
+    });
+  };
+
   const visibleSeats = (accept: (index: number) => boolean, limit: number): LabelPoint[] => {
     const canvas = map.getCanvas();
     const width = canvas.clientWidth;
@@ -490,6 +527,7 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
     map,
     applyAssignment,
     setSelected,
+    flyTo,
     onSelect: (handler) => selectHandlers.push(handler),
     onHover: (handler) => hoverHandlers.push(handler),
     onViewChange: (handler) => viewHandlers.push(handler),

@@ -355,6 +355,37 @@ Source, data reports and licence: see the repository.
 
 <a id="metodologie-română"></a>
 
+## Manual overrides
+
+Every rule in this document is deterministic, and none of them knows anything the map does
+not contain. Where you have a reason the model does not — a road that matters, a plan that
+exists, a history that does not show up in a population figure — you can move a UAT by hand.
+
+Select it, pick a unit from **Move this UAT to…**, and it goes there. The constraints are the
+model's own: the target has to be a unit that exists at the current parameters, and it has to
+be one the UAT could legally join, which means the same county, or Bucharest for an Ilfov
+commune.
+
+Overrides are applied *after* the rules run and are never confused with them. A moved commune
+is labelled `manual` in the member list, its explanation says it was placed by hand, and the
+sidebar lists every override with a way to undo it. With no overrides the map is exactly what
+the rules produced — which is what keeps the Python reference and the browser in step.
+
+They travel in the link, so a scenario with overrides can still be shared and argued with.
+
+One thing an override can do that the rules cannot: leave a unit in two disconnected pieces,
+by taking a commune out of the middle of one. That is reported rather than prevented. Refusing
+it would hide the consequence, and the point of an override is that the person making it knows
+something the model does not.
+
+## Worth a look
+
+A list of units the rules leave looking odd: single-UAT units, units below the population
+target, units whose seat is outranked administratively by one of their own members, and any
+unit an override has split. None of these is an error — they are all legal outcomes of the
+rules — but every problem described in this document was found by noticing one of them while
+panning around the map. The list exists so they can be found on purpose instead.
+
 ## Metodologie (română)
 
 ### Ce este
@@ -622,3 +653,38 @@ implementat de două ori — o dată în Python ca referință, o dată în Type
 parametri. Dacă vreodată nu coincid, browserul este cel greșit.
 
 Sursă, rapoarte de date și licență: vezi repository-ul.
+
+## Modificări manuale
+
+Toate regulile din acest document sunt deterministe și niciuna nu știe ceva ce harta nu
+conține. Acolo unde aveți un motiv pe care modelul nu îl are — un drum care contează, un plan
+care există, o istorie care nu apare într-o cifră de populație — puteți muta o UAT manual.
+
+O selectați, alegeți o unitate din **Mută această UAT la…** și acolo ajunge. Constrângerile
+sunt chiar ale modelului: ținta trebuie să fie o unitate care există la parametrii curenți și
+una la care UAT-ul se poate alătura legal — adică același județ, sau Bucureștiul pentru o
+comună ilfoveană.
+
+Modificările se aplică *după* ce rulează regulile și nu se confundă niciodată cu ele. O comună
+mutată este marcată `manual` în lista de membri, explicația ei spune că a fost plasată manual,
+iar bara laterală listează fiecare modificare cu posibilitatea de a o anula. Fără modificări,
+harta este exact ce au produs regulile — ceea ce ține modelul de referință Python și browserul
+în pas.
+
+Modificările circulă în link, deci un scenariu cu modificări poate fi în continuare distribuit
+și contestat.
+
+Un lucru pe care o modificare îl poate face, iar regulile nu: să lase o unitate din două
+bucăți neconectate, scoțând o comună din mijlocul ei. Acest lucru este raportat, nu împiedicat.
+A-l refuza ar ascunde consecința, iar rostul unei modificări manuale este tocmai că persoana
+care o face știe ceva ce modelul nu știe.
+
+## De verificat
+
+O listă a unităților pe care regulile le lasă arătând ciudat: unități dintr-o singură UAT,
+unități sub populația-țintă, unități al căror sediu este depășit în rang administrativ de un
+membru propriu și orice unitate ruptă de o modificare manuală. Niciuna nu este o eroare — sunt
+toate rezultate legale ale regulilor — dar fiecare problemă descrisă în acest document a fost
+găsită observând una dintre ele în timp ce se naviga pe hartă. Lista există pentru ca ele să
+poată fi găsite intenționat.
+

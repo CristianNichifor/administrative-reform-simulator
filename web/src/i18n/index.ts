@@ -102,6 +102,24 @@ export interface Strings {
   totalOperatingOfMembers: string;
   centreKeeps: string;
   savedPerYear: string;
+  pinHeading: string;
+  pinMoveTo: string;
+  pinKeepRules: string;
+  pinNone: string;
+  pinRemove: string;
+  pinClearAll: string;
+  pinBadge: string;
+  pinWhy: string;
+  pinSplit: string;
+  pinStale: string;
+  auditHeading: string;
+  auditIntro: string;
+  auditSingle: string;
+  auditBelowTarget: string;
+  auditOutranked: string;
+  auditSplit: string;
+  auditClean: string;
+  auditShow: string;
   balanceSurplus: string;
   balanceDeficit: string;
   perResident: string;
@@ -221,6 +239,24 @@ const ro: Strings = {
   totalOperatingOfMembers: 'Administrație, toate comunele',
   centreKeeps: 'Centrul păstrează',
   savedPerYear: 'economii estimate / an prin fuziune',
+  pinHeading: 'Modificări manuale',
+  pinMoveTo: 'Mută această UAT la…',
+  pinKeepRules: 'lăsată pe seama regulilor',
+  pinNone: 'Nicio modificare manuală. Harta este în întregime rezultatul regulilor.',
+  pinRemove: 'Elimină',
+  pinClearAll: 'Șterge toate modificările',
+  pinBadge: 'manual',
+  pinWhy: 'Plasată manual, peste ceea ce au decis regulile.',
+  pinSplit: 'Atenție: această unitate a rămas din două bucăți neconectate.',
+  pinStale: 'Modificare ignorată: ținta nu mai este centrul unei unități la acești parametri.',
+  auditHeading: 'De verificat',
+  auditIntro: 'Unități pe care regulile le lasă arătând ciudat. Nu sunt erori, sunt locurile unde merită să vă uitați.',
+  auditSingle: 'unități dintr-o singură UAT',
+  auditBelowTarget: 'sub populația-țintă',
+  auditOutranked: 'sediu depășit în rang de un membru',
+  auditSplit: 'rupte de o modificare manuală',
+  auditClean: 'Nimic de semnalat.',
+  auditShow: 'Arată',
   balanceSurplus: 'Excedent',
   balanceDeficit: 'Deficit',
   perResident: '/ locuitor',
@@ -340,6 +376,24 @@ const en: Strings = {
   totalOperatingOfMembers: 'Administration, all communes',
   centreKeeps: 'The centre keeps',
   savedPerYear: 'estimated saving / year from merging',
+  pinHeading: 'Manual overrides',
+  pinMoveTo: 'Move this UAT to…',
+  pinKeepRules: 'left to the rules',
+  pinNone: 'No manual overrides. The map is entirely what the rules produced.',
+  pinRemove: 'Remove',
+  pinClearAll: 'Clear all overrides',
+  pinBadge: 'manual',
+  pinWhy: 'Placed by hand, overriding what the rules decided.',
+  pinSplit: 'Warning: this unit has been left in two disconnected pieces.',
+  pinStale: 'Override ignored: the target is no longer a unit seat at these parameters.',
+  auditHeading: 'Worth a look',
+  auditIntro: 'Units the rules leave looking odd. Not errors — the places worth checking.',
+  auditSingle: 'single-UAT units',
+  auditBelowTarget: 'below the population target',
+  auditOutranked: 'seat outranked by a member',
+  auditSplit: 'split by a manual override',
+  auditClean: 'Nothing flagged.',
+  auditShow: 'Show',
   balanceSurplus: 'Surplus',
   balanceDeficit: 'Deficit',
   perResident: '/ resident',

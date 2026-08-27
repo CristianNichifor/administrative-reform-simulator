@@ -6,7 +6,7 @@
  * point of a tool built for public debate.
  */
 
-import { DEFAULT_PARAMS, type Params, type ViewMode } from '../model/types';
+import { DEFAULT_PARAMS, type Params, type Pin, type ViewMode } from '../model/types';
 import type { Lang } from '../i18n';
 
 export interface Scenario {
@@ -14,6 +14,8 @@ export interface Scenario {
   lang: Lang;
   mode: ViewMode;
   selected: number | null;
+  /** Manual overrides, in the order they were made. */
+  pins: Pin[];
 }
 
 const KEYS: Record<keyof Params, string> = {
@@ -40,7 +42,35 @@ export function encode(scenario: Scenario): string {
   q.set('lang', scenario.lang);
   if (scenario.mode !== 'regions') q.set('mode', scenario.mode);
   if (scenario.selected !== null) q.set('sel', String(scenario.selected));
+  // "uat.seat" pairs, comma separated. Indices rather than SIRUTA codes because the index
+  // is the SIRUTA sort order and is stable across builds, and a link with fifty six-digit
+  // codes in it is a link nobody pastes.
+  if (scenario.pins.length > 0) {
+    q.set('pin', scenario.pins.map((p) => `${p.uat}.${p.seat}`).join(','));
+  }
   return q.toString();
+}
+
+/** Anything malformed is dropped rather than throwing: a hand-edited link should degrade. */
+function decodePins(raw: string | null): Pin[] {
+  if (!raw) return [];
+  const pins: Pin[] = [];
+  const seen = new Set<number>();
+  for (const part of raw.split(',')) {
+    const [a, b] = part.split('.');
+    // Both halves must actually be there. `Number('')` is 0, so "8." would otherwise decode
+    // as a pin onto whatever UAT sits at index 0 — a silently wrong map rather than a
+    // dropped fragment.
+    if (!a || !b) continue;
+    const uat = Number(a);
+    const seat = Number(b);
+    if (!Number.isInteger(uat) || !Number.isInteger(seat) || uat < 0 || seat < 0) continue;
+    // One pin per UAT: a later one for the same commune replaces the earlier.
+    if (seen.has(uat)) pins.splice(pins.findIndex((p) => p.uat === uat), 1);
+    seen.add(uat);
+    pins.push({ uat, seat });
+  }
+  return pins;
 }
 
 function num(value: string | null, fallback: number): number {
@@ -69,6 +99,7 @@ export function decode(hash: string, lang: Lang): Scenario {
     lang: (q.get('lang') as Lang) ?? lang,
     mode: q.get('mode') === 'cost' ? 'cost' : 'regions',
     selected: sel !== null && Number.isFinite(sel) ? sel : null,
+    pins: decodePins(q.get('pin')),
   };
 }
 

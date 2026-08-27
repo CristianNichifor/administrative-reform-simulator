@@ -9,7 +9,7 @@
 import { decode } from './load';
 import { assignUnitColours } from './colour';
 import { runModel } from './model';
-import type { Attributes, Manifest, ModelData, Params } from './types';
+import type { Attributes, Manifest, ModelData, Params, Pin } from './types';
 
 export interface InitMessage {
   type: 'init';
@@ -18,6 +18,8 @@ export interface InitMessage {
 
 export interface ComputeMessage {
   type: 'compute';
+  /** Manual overrides applied after the rules run. Absent or empty means none. */
+  pins?: Pin[];
   params: Params;
   /** Echoed back so the UI can discard results that a later drag has superseded. */
   token: number;
@@ -62,6 +64,9 @@ export interface ResultMessage {
   savingsAdminRon: number;
   savingsOperatingRon: number;
   underSeededCounties: string[];
+  pinsApplied: Pin[];
+  pinsRejected: { pin: Pin; why: 'not-a-seat' | 'county' | 'already-there' }[];
+  splitUnits: number[];
   elapsedMs: number;
 }
 
@@ -138,7 +143,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
     if (message.type === 'compute') {
       if (!data) throw new Error('compute before init');
       const started = performance.now();
-      const result = runModel(data, message.params);
+      const result = runModel(data, message.params, message.pins ?? []);
 
       // A unit is orphan-tier when its seat is not a centre: absorbed units are always
       // centred on one, clusters never are.
@@ -165,6 +170,9 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         savingsAdminRon: result.savingsAdminRon,
         savingsOperatingRon: result.savingsOperatingRon,
         underSeededCounties: result.underSeededCounties,
+        pinsApplied: result.pinsApplied,
+        pinsRejected: result.pinsRejected,
+        splitUnits: result.splitUnits,
         elapsedMs,
       };
       // Transferred, not copied: 3,186 entries is small, but the transfer keeps the main
