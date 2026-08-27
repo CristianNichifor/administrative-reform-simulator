@@ -38,6 +38,7 @@ from pipeline.constants import (
     CRS_WGS84,
     OVERLAP_QUANTISATION_DECIMALS,
     RADIUS_GRID_M,
+    admin_rank_of,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
 from pipeline.paths import DOCS_DIR, PROCESSED_DIR, RAW_DIR, REPORTS_DIR, WEB_DATA_DIR
@@ -129,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
                 "county": list(uats["county_code"]),
                 # Tier-0 membership is a rule, not a property of the data, so it ships
                 # resolved rather than being re-derived in two languages.
+                # Administrative standing, which decides which member of a unit gives it
+                # its seat. Shipped resolved for the same reason isCapital is: deriving it
+                # from SIRUTA level names in two languages is two chances to disagree.
+                "adminRank": [admin_rank_of(v) for v in uats["natlevname"]],
                 "isCapital": [
                     bool(s in COUNTY_CAPITAL_SIRUTA or c == "B")
                     for s, c in zip(uats["siruta"], uats["county_code"], strict=True)

@@ -34,14 +34,15 @@ import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Final
 
 import geopandas as gpd
 import pandas as pd
 
 from pipeline.constants import (
     ABSORBER_POP_THRESHOLD_DEFAULT,
+    ADMIN_RANK_ORAS,
     BUCHAREST_COUNTY_CODE,
+    BUCHAREST_RING_COUNTY,
     MAX_ROAD_DEFAULT_M,
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
@@ -58,6 +59,7 @@ from pipeline.constants import (
     TIER_NATIONAL_CAPITAL,
     TIER_POPULATION,
     TIER_PROMOTED,
+    admin_rank_of,
 )
 from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
 from pipeline.paths import PROCESSED_DIR
@@ -161,20 +163,8 @@ def load_data() -> Data:
     county = dict(zip(uats["siruta"], uats["county_code"], strict=True))
     name = dict(zip(uats["siruta"], uats["name_uat"], strict=True))
 
-    def _rank(level: str) -> int:
-        text = str(level).lower()
-        if "sector" in text:
-            return 0
-        if "resedinta de judet" in text:
-            return 1
-        if "municipiu" in text:
-            return 2
-        if "oras" in text:
-            return 3
-        return 4
-
     admin_rank = {
-        siruta: _rank(level)
+        siruta: admin_rank_of(level)
         for siruta, level in zip(uats["siruta"], uats["natlevname"], strict=True)
     }
     seat_xy = {r.siruta: (r.geometry.x, r.geometry.y) for r in seats.itertuples()}
@@ -384,6 +374,10 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
             for s in data.by_county[county_code]
             if (s in data.absorbers or data.admin_rank[s] <= ADMIN_RANK_ORAS)
             and s not in result.seeds
+            # A stood-down centre is not among "all the other potential absorbers": being
+            # removed from `seeds` would otherwise let it be promoted straight back, which
+            # is how Oras Babeni came to stand alone inside Ramnicu Valcea's reach.
+            and s not in result.held
         ]
         covered: set[str] = set()
         for seed in in_county:
@@ -444,7 +438,7 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
 
 
 def accrete(data: Data, params: Params, result: Result) -> None:
-    """Grow every centre outward along the road network, in three passes.
+    """Grow every centre outward along the road network in one pass.
 
     **Capitals are not capped.** A county capital absorbs whatever its radius admits. The
     population target governs the smaller centres only: Tulcea alone is 65,624, already past
@@ -454,12 +448,13 @@ def accrete(data: Data, params: Params, result: Result) -> None:
     stops taking more, which leaves something for its neighbours instead of letting whoever
     is nearest to the most communes sweep the county.
 
-    **A centre bordering its county capital is held back.** Otherwise the capital simply
-    eats it on the first step, and a perfectly good town disappears because of where it
-    happens to sit. It is left alone while everyone else grows, then asked whether it can
-    still reach the target from what remains. If it can, it stays a centre. If it cannot, it
-    folds into the capital — the outcome it was being protected from, but only once that has
-    been shown to be the right answer rather than an accident of ordering.
+    **A centre inside a capital's reach was stood down before this ran**, in `select_seeds`.
+    It is not a rival to be grown and then judged; it is part of that city, and the centre
+    role it gives up reappears further out when the county fills its quota by promotion.
+
+    What remains here is the tail of that rule: a stood-down centre whose capital never
+    actually arrived over contiguous territory. It keeps whatever it holds and is folded
+    into the capital only where the distance cap allows.
     """
     # A stood-down centre is reserved for the capital that shadows it, not handed to
     # whichever absorber happens to be nearest by road — Cumpana was going south to Eforie
@@ -511,11 +506,6 @@ def accrete(data: Data, params: Params, result: Result) -> None:
 # through a single continuous city. It is the one place where the no-cross-county rule
 # produces a worse answer than breaking it, and it is broken only here: every other county
 # boundary stays absolute, and only the capital may cross, never a smaller centre.
-BUCHAREST_RING_COUNTY: Final = "IF"
-
-# Administrative rank: sector 0, county seat 1, municipiu 2, oras 3, comuna 4. Anything at
-# or above `oras` is a town rather than a village-based commune.
-ADMIN_RANK_ORAS: Final = 3
 
 
 def _may_absorb(data: Data, absorber: str, uat: str) -> bool:

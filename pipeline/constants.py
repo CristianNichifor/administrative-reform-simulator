@@ -135,6 +135,36 @@ COUNTY_CODES: Final[tuple[str, ...]] = (
 
 BUCHAREST_COUNTY_CODE: Final = "B"
 
+# Bucharest's Ilfov ring: the one county line a single unit is allowed to cross.
+BUCHAREST_RING_COUNTY: Final = "IF"
+
+# Administrative standing, smaller is more significant. Legea 351/2001 ranks settlements;
+# this is the same idea reduced to what the model needs to order two seats against each
+# other. Anything at or above `oras` is a town rather than a village-based commune.
+ADMIN_RANK_SECTOR: Final = 0
+ADMIN_RANK_COUNTY_SEAT: Final = 1
+ADMIN_RANK_MUNICIPIU: Final = 2
+ADMIN_RANK_ORAS: Final = 3
+ADMIN_RANK_COMUNA: Final = 4
+
+
+def admin_rank_of(natlevname: str) -> int:
+    """Administrative standing from the SIRUTA level name.
+
+    Shared rather than duplicated: the model orders seats by this and the web export ships
+    it, and two hand-written copies of the same string matching would drift silently.
+    """
+    text = str(natlevname).lower()
+    if "sector" in text:
+        return ADMIN_RANK_SECTOR
+    if "resedinta de judet" in text:
+        return ADMIN_RANK_COUNTY_SEAT
+    if "municipiu" in text:
+        return ADMIN_RANK_MUNICIPIU
+    if "oras" in text:
+        return ADMIN_RANK_ORAS
+    return ADMIN_RANK_COMUNA
+
 
 # --- Absorber tiers --------------------------------------------------------------------
 # Accretion processes tiers in this order, exhausting each before starting the next.

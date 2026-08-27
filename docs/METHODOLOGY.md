@@ -37,12 +37,31 @@ above the population threshold you set.
 
 **Bucharest is one centre, not six.** Its sectors are not candidates and never compete with
 each other — six parallel administrations over one continuous city is precisely the
-duplication this exercise is about. They merge into a single unit of 1.72 million. Because
-regions never cross county lines, that unit absorbs nothing beyond itself, which is also why
-the national-capital radius has almost no effect in practice.
+duplication this exercise is about.
+
+**Bucharest is also the one place a unit may cross a county line.** Everywhere else the
+county boundary is absolute. Around the capital it runs through continuous built-up area:
+Otopeni, Voluntari, Pantelimon and Popești-Leordeni are the city's suburbs in every
+practical sense, and a model that stops at the line describes an administration rather than
+a city. The resulting unit is 2.04 million across 19 UATs, 13 of them in Ilfov.
+
+The city's reach is the union of its six sectors', not Sector 1's alone. Candidacy is
+precomputed per UAT and Sector 1's buffer points north-west, so treating it as the city gave
+a capital that absorbed Chitila and nothing else.
 
 If a county ends up with fewer centres than the minimum you set, more are promoted. They are
-chosen by *how much uncovered population they would reach*, not by how large they are.
+chosen by *how much uncovered population they would reach*, not by how large they are. Towns
+join the pool whatever their population: the threshold decides who is automatically a centre,
+but promotion exists to fill a county that came up short, and there a town with a town hall
+is a better answer than a large commune.
+
+**Every unit is named after the most significant town in it.** Which communes group together
+is settled by roads and radii; this decides only which member gives the unit its seat. It is
+re-elected by administrative standing — county capital, then municipiu, then oraș, then the
+larger commune — because otherwise a commune promoted for its coverage can end up seating a
+unit that contains a town: Curcani, a commune of 5,301, gave its name to a unit containing
+Oraș Budești (7,126). A re-election that would put a member beyond the distance cap from its
+new seat is refused, and the unit keeps the seat it grew from.
 This matters: choosing by size alone bunches every centre into whichever corner of the
 county is densest, which is exactly the failure this step exists to prevent. Promoted
 centres must also sit a minimum distance apart **by road**, measured through the county
@@ -89,17 +108,26 @@ units as wide as the county. A radius says how far a centre pulls; the cap says 
 anyone should reasonably have to travel to their own town hall. It binds on every merge, not
 only on growth.
 
-*A centre bordering its county capital is held back.* Otherwise the capital simply eats it
-on the first step, and a perfectly good town disappears because of where it happens to sit.
-It is left alone while everyone else grows, then asked whether it can still reach the target
-from what remains. If it can, it stays a centre. If it cannot, it folds into the capital —
-the outcome it was being protected from, but only once that has been shown to be the right
-answer rather than an accident of ordering.
+*A centre standing inside a capital's reach is stood down, and the capital takes it.* This
+is what builds a metropolitan area instead of a ring of small rivals. Cumpăna is part of
+Constanța in every practical sense, so leaving it a separate centre describes an
+administrative fiction — and left to compete it was absorbed southwards by Eforie instead.
 
-At the default settings 69 centres are held this way; 5 survive on their own and 64 fold in.
-Not always into the capital: a neighbouring held centre that did reach the target grows in
-the same pass and can take it first. Dumbrăvița, Ghiroda and Moșnița Nouă all border
-Timișoara and end up in Giroc rather than in the capital, because Giroc is nearer by road.
+The rule keys on the capital's reach, not on sharing a border with it: Cumpăna does not
+touch Constanța at all, it reaches the city through Agigea. It also keys on the centre's
+*seat* being inside the radius rather than on how much of its territory overlaps. A quarter
+of Sighetu Marmației's sprawling area reaches Baia Mare's buffer while the two seats are
+38 km apart, and demoting a municipiu of 34,000 on that basis would be indefensible.
+
+The centre role is not destroyed, it moves outward. A stood-down candidate is removed from
+the pool before promotion runs, so the county fills its quota from a town further out —
+which is where a second centre is actually useful.
+
+A stood-down centre is *reserved* for its capital, not handed to it. Growth still has to
+arrive over the capital's own territory, which is what keeps every unit in one piece:
+assigning Cumpăna directly produced a Constanța in two disconnected halves. At the default
+settings 102 centres are stood down and 1 ends up standing alone, because the capital
+reserved for it never reached it.
 
 A commune joins whichever centre reaches it **along the shortest road**. Distance is
 measured between seat villages, on the real road network, and accumulated along the path
@@ -340,8 +368,22 @@ Acesta este întregul scop și merită un scor mai slab la compactitate.
 ### Cum funcționează modelul
 
 **Pasul 1 — alegerea centrelor.**
-Două categorii devin automat centre de absorbție: cele 41 de reședințe de județ plus cele
-șase sectoare ale Bucureștiului, și orice localitate peste pragul de populație ales.
+Două categorii devin automat centre de absorbție: cele 41 de reședințe de județ și orice
+localitate peste pragul de populație ales.
+
+**Bucureștiul este un singur centru, nu șase.** Sectoarele nu sunt candidate și nu concurează
+între ele — șase administrații paralele peste un oraș continuu sunt exact dublarea despre
+care este vorba aici.
+
+**Bucureștiul este și singurul loc unde o unitate poate traversa o limită de județ.** În rest
+limita de județ este absolută. În jurul capitalei ea trece prin construit continuu: Otopeni,
+Voluntari, Pantelimon și Popești-Leordeni sunt suburbiile orașului în orice sens practic, iar
+un model care se oprește la limită descrie o administrație, nu un oraș. Unitatea rezultată
+are 2,04 milioane de locuitori în 19 UAT-uri, dintre care 13 în Ilfov.
+
+Raza orașului este reuniunea razelor celor șase sectoare, nu doar a Sectorului 1. Candidatura
+este precalculată per UAT, iar tamponul Sectorului 1 este orientat spre nord-vest, așa că
+tratarea lui ca oraș întreg dădea o capitală care absorbea Chitila și nimic altceva.
 
 Minimul este implicit unu — adică fără constrângere. La un prag de 7.500 această rezervă
 aproape nu este necesară, iar lăsată mai sus face rău în județele rare: Tulcea are două
@@ -349,7 +391,10 @@ centre naturale, așa că un minim de cinci a promovat Sarichioi drept centru pr
 să îl lase să se alăture Babadagului, la 16 km pe drum și cu graniță comună.
 
 Dacă un județ rămâne cu mai puține centre decât minimul stabilit, se promovează altele. Sunt
-alese după *câtă populație neacoperită ar cuprinde*, nu după cât de mari sunt. Acest lucru
+alese după *câtă populație neacoperită ar cuprinde*, nu după cât de mari sunt. Orașele intră
+în bazinul de candidați indiferent de populație: pragul stabilește cine este automat centru,
+dar promovarea există tocmai pentru un județ rămas descoperit, iar acolo un oraș cu primărie
+este un răspuns mai bun decât o comună mare. Acest lucru
 contează: alegerea după mărime grupează toate centrele în colțul cel mai dens al județului,
 exact eșecul pe care acest pas există să îl prevină. Centrele promovate trebuie să fie și la
 o distanță minimă unele de altele. Unde acest lucru nu este posibil, cerința se relaxează
@@ -380,8 +425,39 @@ Fiecare centru crește în inele. Ia în calcul întâi comunele vecine, apoi ve
 regiune, deci o regiune nu poate niciodată să sară peste o comună pe care nu a absorbit-o.
 Odată preluată, o comună rămâne preluată — primul centru care ajunge la ea o păstrează.
 
-Două limite ferme: o regiune **nu traversează niciodată o limită de județ**, iar o comună
-poate fi absorbită doar peste o graniță traversată efectiv de un drum.
+Două limite ferme: o regiune **nu traversează niciodată o limită de județ** — cu singura
+excepție a Bucureștiului și a inelului său ilfovean — iar o comună poate fi absorbită doar
+peste o graniță traversată efectiv de un drum.
+
+*Un centru aflat în raza unei reședințe de județ este oprit din competiție, iar reședința îl
+preia.* Astfel se construiește o zonă metropolitană în loc de un inel de rivali mici. Cumpăna
+face parte din Constanța în orice sens practic, iar lăsată centru separat ajungea absorbită
+spre sud de Eforie.
+
+Regula se raportează la raza reședinței, nu la faptul că are graniță comună cu ea: Cumpăna nu
+atinge deloc Constanța, ajunge la oraș prin Agigea. Se raportează și la *sediul* centrului
+aflat în rază, nu la cât din teritoriu se suprapune. Un sfert din suprafața întinsă a
+Sighetului Marmației atinge tamponul Băii Mari, deși cele două sedii sunt la 38 km distanță,
+iar retrogradarea unui municipiu de 34.000 pe acest temei ar fi de nesusținut.
+
+Rolul de centru nu dispare, ci se mută mai departe: candidatul oprit este scos din bazin
+înainte de promovare, așa că județul își completează cota cu un oraș mai depărtat — acolo
+unde un al doilea centru chiar folosește.
+
+Un centru oprit este *rezervat* reședinței, nu atribuit direct. Creșterea trebuie să ajungă
+la el pe teritoriul propriu al reședinței, ceea ce menține fiecare unitate dintr-o singură
+bucată: atribuirea directă a Cumpenei producea o Constanță în două jumătăți neconectate. La
+setările implicite 102 centre sunt oprite, iar 1 rămâne pe cont propriu, pentru că reședința
+rezervată lui nu a ajuns până la el.
+
+**Fiecare unitate poartă numele celei mai importante localități din ea.** Ce comune ajung
+împreună este decis de drumuri și raze; aici se stabilește doar care membru dă sediul. Este
+reales după rangul administrativ — reședință de județ, apoi municipiu, apoi oraș, apoi comuna
+mai mare — pentru că altfel o comună promovată pentru acoperire ajunge să dea numele unei
+unități care conține un oraș: Curcani, comună de 5.301 locuitori, dădea numele unei unități
+care conținea Orașul Budești (7.126). O realegere care ar duce un membru dincolo de plafonul
+de distanță față de noul sediu este refuzată, iar unitatea păstrează sediul din care a
+crescut.
 
 **Pasul 5 — mărimea minimă rezultată.**
 Opțional și dezactivat implicit. O unitate rămasă sub pragul de populație absoarbe cea mai

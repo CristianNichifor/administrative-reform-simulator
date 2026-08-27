@@ -176,10 +176,15 @@ describe('model invariants', () => {
     }
   });
 
-  it('never lets a region span two counties', () => {
+  it('never lets a region span two counties, bar the Bucharest ring', () => {
+    // Bucharest and Ilfov are the one permitted exception: the county line there runs
+    // through continuous built-up area rather than around it.
     const result = runModel(data, toParams(fixture.cases[0]!.params));
     for (let i = 0; i < data.uatCount; i += 1) {
-      expect(data.countyOf[i]).toBe(data.countyOf[result.regionOf[i]!]);
+      const from = data.attributes.county[result.regionOf[i]!];
+      const to = data.attributes.county[i];
+      if (from === to) continue;
+      expect([from, to]).toEqual(['B', 'IF']);
     }
   });
 

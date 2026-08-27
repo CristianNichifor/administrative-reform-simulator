@@ -156,10 +156,14 @@ export function decode(raw: RawPayload): ModelData {
   // marks county capitals; Bucharest is identified by its county rather than by the flag,
   // because its six sectors are merged into one centre rather than competing as six.
   const capitalOfCounty = new Map<number, number>();
+  const bucharestSectors: number[] = [];
   let bucharestIndex = -1;
   let bucharestCounty = -1;
+  let ilfovCounty = -1;
   for (let i = 0; i < n; i += 1) {
+    if (attributes.county[i] === 'IF') ilfovCounty = countyOf[i]!;
     if (attributes.county[i] === 'B') {
+      bucharestSectors.push(i);
       if (bucharestIndex === -1) {
         bucharestIndex = i;
         bucharestCounty = countyOf[i]!;
@@ -189,6 +193,8 @@ export function decode(raw: RawPayload): ModelData {
     capitalOfCounty,
     bucharestIndex,
     bucharestCounty,
+    bucharestSectors,
+    ilfovCounty,
     neighbours,
     neighbourRoadM,
     neighbourStart,

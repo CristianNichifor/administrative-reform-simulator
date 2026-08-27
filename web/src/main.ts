@@ -100,6 +100,18 @@ const SLIDERS: SliderSpec[] = [
 const isRadius = (key: keyof Params): boolean =>
   key === 'rCapM' || key === 'rTownM' || key === 'rNationalM';
 
+/**
+ * What to call a unit, as opposed to a UAT.
+ *
+ * The six sectors merge into one city and the lowest-numbered one stands for it, since the
+ * UAT set has no "Municipiul Bucuresti" row. Naming the resulting unit "Sectorul 1" would
+ * describe the merge as an annexation by one sector, which is not what it is.
+ */
+function unitName(data: ReadyMessage, seat: number): string {
+  if (data.attributes.county[seat] === 'B') return 'MUNICIPIUL BUCUREȘTI';
+  return data.attributes.name[seat]!;
+}
+
 function el<T extends HTMLElement>(selector: string): T {
   const node = document.querySelector<T>(selector);
   if (!node) throw new Error(`missing element: ${selector}`);
@@ -365,7 +377,7 @@ async function boot(): Promise<void> {
     if (!latest || !ready) return '';
     const reason = latest.reasonOf[index]!;
     const region = latest.regionOf[index]!;
-    const centre = ready.attributes.name[region]!;
+    const centre = unitName(ready, region);
     const radius =
       latest.tierOf[region] === 0
         ? `${scenario.params.rCapM / 1000} km`
@@ -443,7 +455,7 @@ async function boot(): Promise<void> {
 
     panel.innerHTML = `
       <p class="kicker">${strings.region}${orphan ? ` · <span class="badge orphan">${strings.legendOrphan}</span>` : ''}</p>
-      <h3>${ready.attributes.name[region]}</h3>
+      <h3>${unitName(ready, region)}</h3>
       <dl>
         <dt>${strings.county}</dt><dd>${ready.attributes.county[region]}</dd>
         <dt>${strings.members}</dt><dd>${formatNumber(members.length, scenario.lang)}</dd>
@@ -582,7 +594,9 @@ async function boot(): Promise<void> {
     const fragment = document.createDocumentFragment();
     for (const point of mapHandle.visibleSeats(accept, LABEL_LIMIT)) {
       const node = document.createElement('span');
-      node.textContent = ready.attributes.name[point.index]!;
+      node.textContent = showingToday
+        ? ready.attributes.name[point.index]!
+        : unitName(ready, point.index);
       if (!showingToday) node.className = 'centre';
       node.style.left = `${point.x}px`;
       node.style.top = `${point.y}px`;
@@ -627,7 +641,7 @@ async function boot(): Promise<void> {
         ${
           unchanged
             ? ''
-            : `<div class="unit">${ready.attributes.name[unit]} · ${formatNumber(
+            : `<div class="unit">${unitName(ready, unit)} · ${formatNumber(
                 unitMembers,
                 scenario.lang,
               )} ${strings.hoverCommunes}</div>`

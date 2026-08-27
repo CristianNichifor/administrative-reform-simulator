@@ -38,6 +38,92 @@ function tierRadius(params: Params, tier: number): number {
 const isCapitalTier = (tier: number): boolean =>
   tier === TIER_NATIONAL_CAPITAL || tier === TIER_COUNTY_CAPITAL;
 
+/** Anything at or above `oras` is a town rather than a village-based commune. */
+const ADMIN_RANK_ORAS = 3;
+
+/**
+ * Whether `absorber` is allowed to take `uat` at all.
+ *
+ * Units are county-bound with exactly one exception: Bucharest and its Ilfov ring. The
+ * county line there runs through continuous built-up area — Otopeni, Voluntari and
+ * Pantelimon are the city's suburbs in every practical sense — and it is the only place in
+ * the country where that is true.
+ */
+function mayAbsorb(data: ModelData, absorber: number, uat: number): boolean {
+  const from = data.countyOf[absorber]!;
+  const to = data.countyOf[uat]!;
+  if (from === to) return true;
+  return from === data.bucharestCounty && to === data.ilfovCounty;
+}
+
+/**
+ * UATs close enough to a capital that it takes them over rather than competing with them.
+ *
+ * Deliberately tighter than `eligibleFor`, which admits a UAT when a tenth of its *area*
+ * falls inside the buffer. That is right for growth and wrong for standing a centre down:
+ * a quarter of Sighetu Marmatiei's sprawling territory reaches Baia Mare's buffer while the
+ * two seats are 38 km apart, and demoting a municipiu of 34,000 on that basis is
+ * indefensible. Here the centre's own seat has to be within the radius.
+ */
+function capitalCore(data: ModelData, params: Params, capital: number, tier: number): Set<number> {
+  const core = new Set<number>();
+  const slice = sliceFor(data, params, tier);
+  const radius = tierRadius(params, tier);
+  const sources = tier === TIER_NATIONAL_CAPITAL ? data.bucharestSectors : [capital];
+  for (const source of sources) {
+    if (slice) {
+      for (let i = slice.rowStart[source]!; i < slice.rowStart[source + 1]!; i += 1) {
+        const target = slice.target[i]!;
+        if (slice.seatInside[i] === 1 && mayAbsorb(data, capital, target)) core.add(target);
+      }
+    }
+    for (let e = data.neighbourStart[source]!; e < data.neighbourStart[source + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (mayAbsorb(data, capital, nb) && data.neighbourRoadM[e]! <= radius) core.add(nb);
+    }
+  }
+  return core;
+}
+
+/**
+ * Which capital takes `uat` over: the national capital first, then nearest by road.
+ *
+ * Tier before distance because Chiajna is a Bucharest suburb that borders the city, yet
+ * Buftea's seat is marginally closer to it by road. Reserving it for Buftea meant neither
+ * capital's growth ever arrived and Chiajna stayed a unit of three on the city's edge.
+ */
+function shadowingCapital(
+  data: ModelData,
+  tierOf: Int8Array,
+  cores: Map<number, Set<number>>,
+  uat: number,
+): number | undefined {
+  let best: number | undefined;
+  let bestTier = 0;
+  let bestStep = 0;
+  for (const [capital, core] of cores) {
+    if (!core.has(uat) || !mayAbsorb(data, capital, uat)) continue;
+    const tier = tierOf[capital]!;
+    let step = Infinity;
+    for (let e = data.neighbourStart[capital]!; e < data.neighbourStart[capital + 1]!; e += 1) {
+      if (data.neighbours[e] === uat) { step = data.neighbourRoadM[e]!; break; }
+    }
+    if (!Number.isFinite(step)) step = Math.hypot(
+      data.seatX[capital]! - data.seatX[uat]!,
+      data.seatY[capital]! - data.seatY[uat]!,
+    );
+    if (
+      best === undefined ||
+      tier < bestTier ||
+      (tier === bestTier && step < bestStep) ||
+      (tier === bestTier && step === bestStep && capital < best)
+    ) {
+      best = capital; bestTier = tier; bestStep = step;
+    }
+  }
+  return best;
+}
+
 /**
  * What a centre may absorb, and how much of each commune its buffer covers.
  *
@@ -49,20 +135,27 @@ const isCapitalTier = (tier: number): boolean =>
 function eligibleFor(data: ModelData, params: Params, seed: number, tier: number): Map<number, number> {
   const admitted = new Map<number, number>();
   const slice = sliceFor(data, params, tier);
-  if (slice) {
-    const threshold = params.minOverlap * data.manifest.overlapScale;
-    for (let i = slice.rowStart[seed]!; i < slice.rowStart[seed + 1]!; i += 1) {
-      if (slice.overlap[i]! >= threshold || slice.seatInside[i] === 1) {
-        admitted.set(slice.target[i]!, slice.overlap[i]!);
+  const radius = tierRadius(params, tier);
+  // Candidacy is precomputed per UAT and Bucharest is represented by one sector, whose
+  // buffer points north-west; the city's reach is the union of its six sectors'. Without
+  // this the capital absorbed Chitila and nothing else.
+  const sources = tier === TIER_NATIONAL_CAPITAL ? data.bucharestSectors : [seed];
+  const threshold = params.minOverlap * data.manifest.overlapScale;
+  for (const source of sources) {
+    if (slice) {
+      for (let i = slice.rowStart[source]!; i < slice.rowStart[source + 1]!; i += 1) {
+        if (slice.overlap[i]! >= threshold || slice.seatInside[i] === 1) {
+          const target = slice.target[i]!;
+          const prev = admitted.get(target) ?? -1;
+          if (slice.overlap[i]! > prev) admitted.set(target, slice.overlap[i]!);
+        }
       }
     }
-  }
-  const radius = tierRadius(params, tier);
-  for (let e = data.neighbourStart[seed]!; e < data.neighbourStart[seed + 1]!; e += 1) {
-    const nb = data.neighbours[e]!;
-    if (admitted.has(nb)) continue;
-    if (data.countyOf[nb] !== data.countyOf[seed]) continue;
-    if (data.neighbourRoadM[e]! <= radius) admitted.set(nb, 0);
+    for (let e = data.neighbourStart[source]!; e < data.neighbourStart[source + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (admitted.has(nb) || !mayAbsorb(data, seed, nb)) continue;
+      if (data.neighbourRoadM[e]! <= radius) admitted.set(nb, 0);
+    }
   }
   return admitted;
 }
@@ -142,6 +235,8 @@ function reach(data: ModelData, params: Params, seed: number, tier: number): num
 function selectSeeds(data: ModelData, params: Params): {
   tierOf: Int8Array;
   underSeeded: string[];
+  held: Set<number>;
+  reservedFor: Map<number, number>;
 } {
   const tierOf = new Int8Array(data.uatCount).fill(-1);
 
@@ -159,6 +254,33 @@ function selectSeeds(data: ModelData, params: Params): {
     } else if (data.population[i]! >= params.x) {
       tierOf[i] = TIER_POPULATION;
     }
+  }
+
+  // A centre inside its capital's reach is stood down, and the capital takes it.
+  //
+  // This is what builds a metropolitan area rather than a ring of small rivals: Cumpana is
+  // part of Constanta in every practical sense, so leaving it a separate centre describes
+  // an administrative fiction. The centre role does not vanish with it — the candidate is
+  // removed before promotion runs, so the county fills its quota from a town further out,
+  // which is where a second centre is actually useful.
+  const cores = new Map<number, Set<number>>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    if (tierOf[i] !== -1 && isCapitalTier(tierOf[i]!)) {
+      cores.set(i, capitalCore(data, params, i, tierOf[i]!));
+    }
+  }
+  const held = new Set<number>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    if (tierOf[i] === -1 || isCapitalTier(tierOf[i]!)) continue;
+    for (const [capital, core] of cores) {
+      if (core.has(i) && mayAbsorb(data, capital, i)) { held.add(i); break; }
+    }
+  }
+  const reservedFor = new Map<number, number>();
+  for (const uat of [...held].sort((a, b) => a - b)) {
+    tierOf[uat] = -1;
+    const capital = shadowingCapital(data, tierOf, cores, uat);
+    if (capital !== undefined) reservedFor.set(uat, capital);
   }
 
   // Group UATs by county, each list ascending by index (i.e. by SIRUTA).
@@ -194,7 +316,15 @@ function selectSeeds(data: ModelData, params: Params): {
     const seedsHere = uats.filter((i) => tierOf[i] !== -1);
     if (seedsHere.length >= params.nMin) continue;
 
-    const pool = uats.filter((i) => isAbsorber[i] === 1 && tierOf[i] === -1);
+    // Towns join the pool whatever their population. The threshold decides who is
+    // *automatically* a centre; promotion exists to fill a county that came up short, and
+    // there a town with a town hall is a better answer than a large commune.
+    const pool = uats.filter(
+      (i) =>
+        (isAbsorber[i] === 1 || data.attributes.adminRank[i]! <= ADMIN_RANK_ORAS) &&
+        tierOf[i] === -1 &&
+        !held.has(i),
+    );
 
     const covered = new Uint8Array(data.uatCount);
     for (const seed of seedsHere) {
@@ -211,6 +341,7 @@ function selectSeeds(data: ModelData, params: Params): {
 
       let bestIndex = -1;
       let bestGain = -1;
+      let bestRank = 99;
       let bestPop = -1;
 
       for (const candidate of pool) {
@@ -228,15 +359,20 @@ function selectSeeds(data: ModelData, params: Params): {
         // Greedy max-coverage, then population descending, then index (SIRUTA) ascending.
         // Ranking by raw population instead would cluster seeds in whichever corner of the
         // county is densest, which is precisely what this step exists to prevent.
+        // Coverage first, then administrative standing, then size. Without the standing
+        // term a commune promoted for its coverage outranks a town that was never promoted.
         const pop = data.population[candidate]!;
+        const rank = data.attributes.adminRank[candidate]!;
         if (
           bestIndex === -1 ||
           gain > bestGain ||
-          (gain === bestGain && pop > bestPop) ||
-          (gain === bestGain && pop === bestPop && candidate < bestIndex)
+          (gain === bestGain && rank < bestRank) ||
+          (gain === bestGain && rank === bestRank && pop > bestPop) ||
+          (gain === bestGain && rank === bestRank && pop === bestPop && candidate < bestIndex)
         ) {
           bestIndex = candidate;
           bestGain = gain;
+          bestRank = rank;
           bestPop = pop;
         }
       }
@@ -257,7 +393,7 @@ function selectSeeds(data: ModelData, params: Params): {
     }
   }
 
-  return { tierOf, underSeeded };
+  return { tierOf, underSeeded, held, reservedFor };
 }
 
 /**
@@ -285,54 +421,21 @@ function accrete(
   reasonOf: Uint8Array,
   overlapOf: Uint8Array,
   members: Map<number, number[]>,
-): Map<number, boolean> {
+  held: Set<number>,
+  reservedFor: Map<number, number>,
+): void {
   const seeds: number[] = [];
   for (let i = 0; i < data.uatCount; i += 1) if (tierOf[i] !== -1) seeds.push(i);
 
-  // Centres that share a border with their own county capital.
-  const held = new Set<number>();
-  for (const seed of seeds) {
-    if (isCapitalTier(tierOf[seed]!)) continue;
-    const capital = data.capitalOfCounty.get(data.countyOf[seed]!);
-    if (capital === undefined) continue;
-    for (let e = data.neighbourStart[seed]!; e < data.neighbourStart[seed + 1]!; e += 1) {
-      if (data.neighbours[e] === capital) {
-        held.add(seed);
-        break;
-      }
-    }
-  }
+  grow(data, params, tierOf, regionOf, reasonOf, overlapOf, members, seeds, new Set(), reservedFor);
 
-  grow(
-    data, params, tierOf, regionOf, reasonOf, overlapOf, members,
-    seeds.filter((s) => !held.has(s)),
-    held,
-  );
-
-  const survived = new Map<number, boolean>();
-  const heldOrder = [...held].sort((a, b) => {
-    const p = data.population[b]! - data.population[a]!;
-    return p !== 0 ? p : a - b;
-  });
-  for (const absorber of heldOrder) {
-    if (regionOf[absorber] !== NO_REGION) continue;
-    grow(data, params, tierOf, regionOf, reasonOf, overlapOf, members, [absorber], new Set());
-    let reached = 0;
-    for (const m of members.get(absorber) ?? [absorber]) reached += data.population[m]!;
-    survived.set(absorber, reached >= params.pTarget);
-  }
-
-  for (const [absorber, ok] of survived) {
-    if (ok) continue;
-    // It may no longer be its own region: another held centre grown earlier can have
-    // absorbed it. Folding it again would assign its communes twice.
+  // The tail of the stand-down rule: a centre whose capital never actually arrived over
+  // contiguous territory. It keeps whatever it holds, and folds into the capital only where
+  // the distance cap allows — folding wholesale put communes twice the cap from the capital.
+  for (const absorber of [...held].sort((a, b) => a - b)) {
     if (regionOf[absorber] !== absorber) continue;
     const capital = data.capitalOfCounty.get(data.countyOf[absorber]!);
     if (capital === undefined || !members.has(capital)) continue;
-    // Folding respects the cap like every other merge. A held centre gathers up to the cap
-    // from itself, so folding it wholesale put communes twice the cap from the capital.
-    // Where that would happen it keeps its own unit and is reported as below target, which
-    // is honest rather than a silently oversized region.
     if (params.maxRoadM > 0) {
       const reach = countyRoadDistances(data, data.countyOf[capital]!, [capital]);
       const tooFar = (members.get(absorber) ?? [absorber]).some(
@@ -347,8 +450,6 @@ function accrete(
     members.delete(absorber);
     tierOf[absorber] = -1;
   }
-
-  return survived;
 }
 
 function grow(
@@ -361,6 +462,7 @@ function grow(
   members: Map<number, number[]>,
   sources: number[],
   blocked: Set<number>,
+  reservedFor: Map<number, number>,
 ): void {
   const eligible = new Map<number, Map<number, number>>();
   const gathered = new Map<number, number>();
@@ -424,7 +526,13 @@ function grow(
     const tier = tierOf[absorber]!;
 
     if (uat !== absorber) {
-      if (data.countyOf[uat] !== data.countyOf[absorber]) continue;
+      if (!mayAbsorb(data, absorber, uat)) continue;
+      // A stood-down centre is reserved for the capital that shadows it. Reserved rather
+      // than assigned outright: Cumpana does not touch Constanta, so assigning it directly
+      // produced a unit in two disconnected pieces. Growth has to arrive over its own
+      // territory, which keeps every unit contiguous.
+      const reserved = reservedFor.get(uat);
+      if (reserved !== undefined && reserved !== absorber) continue;
       // The cap is checked when claiming, not only when expanding. Stopping expansion at
       // the cap still let the last commune inside it push a neighbour one long edge
       // further, and that neighbour was claimed unchecked — Reșița reached 72.9 km against
@@ -461,10 +569,9 @@ function grow(
     for (let e = data.neighbourStart[uat]!; e < data.neighbourStart[uat + 1]!; e += 1) {
       const nb = data.neighbours[e]!;
       if (regionOf[nb] !== NO_REGION || blocked.has(nb)) continue;
-      // Growth never routes through another county: a region cannot occupy one, so a path
-      // that leaves and comes back is not a path the unit holds — and counting it made the
-      // distance cap unenforceable.
-      if (data.countyOf[nb] !== data.countyOf[absorber]) continue;
+      // Growth never routes anywhere the unit could not hold: a path that leaves and comes
+      // back is not a path it occupies, and counting it made the distance cap unenforceable.
+      if (!mayAbsorb(data, absorber, nb)) continue;
       const next = distance + data.neighbourRoadM[e]!;
       if (params.maxRoadM > 0 && next > params.maxRoadM) continue;
       push(next, absorber, nb);
@@ -646,7 +753,10 @@ function consolidateToTarget(
         const county = data.countyOf[region]!;
         const distances = countyRoadDistances(data, county, [region]);
 
-        const standingOf = (unit: number): [number, number, number] => [
+        // Administrative rank leads: an oras is the more significant town than a larger
+        // commune, and a unit named after the commune shows a town governed from a village.
+        const standingOf = (unit: number): [number, number, number, number] => [
+          data.attributes.adminRank[unit]!,
           tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
           -data.population[unit]!,
           unit,
@@ -654,7 +764,8 @@ function consolidateToTarget(
         const beats = (a: number, b: number): boolean => {
           const sa = standingOf(a);
           const sb = standingOf(b);
-          return sa[0] !== sb[0] ? sa[0] < sb[0] : sa[1] !== sb[1] ? sa[1] < sb[1] : sa[2] <= sb[2];
+          for (let k = 0; k < 3; k += 1) if (sa[k] !== sb[k]) return sa[k]! < sb[k]!;
+          return sa[3]! <= sb[3]!;
         };
 
         // Allowed only if, once merged, every commune in the combined unit is within the
@@ -713,15 +824,78 @@ function consolidateToTarget(
   return belowTarget;
 }
 
+/**
+ * Give each unit the most significant town in it as its seat.
+ *
+ * Which communes group together is settled by roads and radii and is not touched here; this
+ * decides only which member the unit is named after and administered from. Curcani is the
+ * case: a commune of 5,301 promoted for its coverage ended up seating a unit containing
+ * Oras Budesti (7,126), so the map showed a town governed from a village.
+ *
+ * A re-election has to keep the distance cap, which growth enforced against the old seat.
+ * Oras Murgeni is the case — the better town administratively, but 73.7 km from members the
+ * cap allows at 50 km. Where no candidate holds the cap the unit keeps the seat it grew from.
+ */
+function reseatUnits(
+  data: ModelData,
+  params: Params,
+  regionOf: Uint16Array,
+  tierOf: Int8Array,
+  orphanSeats: Set<number>,
+): void {
+  const members = new Map<number, number[]>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    const seat = regionOf[i]!;
+    let list = members.get(seat);
+    if (!list) { list = []; members.set(seat, list); }
+    list.push(i);
+  }
+
+  const standing = (unit: number): [number, number, number, number] => [
+    data.attributes.adminRank[unit]!,
+    tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
+    -data.population[unit]!,
+    unit,
+  ];
+  const better = (a: number, b: number): boolean => {
+    const sa = standing(a);
+    const sb = standing(b);
+    for (let k = 0; k < 4; k += 1) if (sa[k] !== sb[k]) return sa[k]! < sb[k]!;
+    return false;
+  };
+
+  for (const oldSeat of [...members.keys()].sort((a, b) => a - b)) {
+    const list = members.get(oldSeat)!;
+    const county = data.countyOf[oldSeat]!;
+    const holdsTheCap = (candidate: number): boolean => {
+      if (params.maxRoadM <= 0) return true;
+      const reach = countyRoadDistances(data, county, [candidate]);
+      // Members in another county are the Bucharest ring, which this county-scoped measure
+      // cannot see; the cap is not enforced across that one line.
+      return list.every(
+        (m) => data.countyOf[m] !== county || (reach.get(m) ?? Infinity) <= params.maxRoadM,
+      );
+    };
+    const ranked = [...list].sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0));
+    const newSeat = ranked.find((c) => holdsTheCap(c)) ?? oldSeat;
+    if (newSeat === oldSeat) continue;
+    for (const m of list) regionOf[m] = newSeat;
+    if (orphanSeats.delete(oldSeat)) orphanSeats.add(newSeat);
+    if (tierOf[oldSeat] !== -1 && tierOf[newSeat] === -1) {
+      tierOf[newSeat] = tierOf[oldSeat]!;
+      tierOf[oldSeat] = -1;
+    }
+  }
+}
+
 export function runModel(data: ModelData, params: Params): ModelResult {
   const regionOf = new Uint16Array(data.uatCount).fill(NO_REGION);
   const reasonOf = new Uint8Array(data.uatCount).fill(REASON.UNCHANGED);
   const overlapOf = new Uint8Array(data.uatCount);
-  const { tierOf, underSeeded } = selectSeeds(data, params);
+  const { tierOf, underSeeded, held, reservedFor } = selectSeeds(data, params);
 
   const members = new Map<number, number[]>();
-  const held = accrete(data, params, tierOf, regionOf, reasonOf, overlapOf, members);
-  void held;
+  accrete(data, params, tierOf, regionOf, reasonOf, overlapOf, members, held, reservedFor);
 
   const orphanSeats = new Set<number>();
   orphanTier(data, params, regionOf, orphanSeats, reasonOf);
@@ -738,7 +912,12 @@ export function runModel(data: ModelData, params: Params): ModelResult {
     if (regionOf[i] === NO_REGION) unassigned += 1;
   }
 
+  // Twice, and the order matters. Consolidation decides which units merge by measuring
+  // road distance from the seat that survives, so it has to see the real seats. Merging
+  // changes the membership, so the seats are settled again on the result.
+  reseatUnits(data, params, regionOf, tierOf, orphanSeats);
   const belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
+  reseatUnits(data, params, regionOf, tierOf, orphanSeats);
 
   const regionSeats = new Set<number>();
   for (let i = 0; i < data.uatCount; i += 1) regionSeats.add(regionOf[i]!);

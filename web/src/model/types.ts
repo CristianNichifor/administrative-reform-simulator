@@ -86,6 +86,8 @@ export interface Attributes {
   name: string[];
   county: string[];
   isCapital: boolean[];
+  /** Administrative standing, smaller is more significant: sector 0 … comuna 4. */
+  adminRank: number[];
 }
 
 /**
@@ -125,6 +127,10 @@ export interface ModelData {
   bucharestIndex: number;
   /** County index for Bucharest, or -1. */
   bucharestCounty: number;
+  /** Every Bucharest sector. The city's reach is the union of theirs, not Sector 1's. */
+  bucharestSectors: number[];
+  /** Ilfov: the one county a unit may reach into, and only from Bucharest. */
+  ilfovCounty: number;
   /** Neighbours in compressed-row form, ascending within each row. */
   neighbours: Uint16Array;
   /** Road distance in metres to each neighbour, aligned with `neighbours`. */
