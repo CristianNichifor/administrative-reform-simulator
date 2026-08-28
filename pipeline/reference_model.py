@@ -33,7 +33,7 @@ import heapq
 import math
 import sys
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 import geopandas as gpd
@@ -969,7 +969,33 @@ def absorb_leftovers(data: Data, params: Params, result: Result) -> int:
     def unit_population(seat: str) -> int:
         return sum(data.population[m] for m in result.members[seat])
 
-    while True:
+    # Two phases. The first hands out only what a non-capital unit will take, repeated until
+    # it stops; the second allows a capital to take what is left.
+    #
+    # The order matters. A commune whose only neighbour is the capital's unit would otherwise
+    # be handed over on the first pass, before the chain of other leftovers beside it has had
+    # a chance to reach it — and once placed it is gone. Deferring them let 28 more communes
+    # find a non-capital home.
+    for capitals_allowed in (False, True):
+        while True:
+            moved = _leftover_pass(data, params, result, reach_from, capitals_allowed)
+            if moved == 0:
+                break
+            placed += moved
+    return placed
+
+
+def _leftover_pass(
+    data: Data,
+    params: Params,
+    result: Result,
+    reach_from: Callable[[str], dict[str, float]],
+    capitals_allowed: bool,
+) -> int:
+    def unit_population(seat: str) -> int:
+        return sum(data.population[m] for m in result.members[seat])
+
+    if True:  # noqa: SIM102 — keeps the diff small; the body is one pass
         moved = 0
         for siruta in sorted(data.population):
             if siruta in result.region_of:
@@ -986,6 +1012,21 @@ def absorb_leftovers(data: Data, params: Params, result: Result) -> int:
                     options[unit] = distance
             if not options:
                 continue
+            # A resedinta de judet takes the ring bordering it and nothing more. It may
+            # still take a commune beyond that ring, but only in the second phase — once
+            # every other unit has finished reaching outward and the commune still has
+            # nowhere to go. Falling back to the capital as soon as nothing else has
+            # arrived *yet* handed it over on the first pass, before the chain of leftovers
+            # beside it had a chance to get there.
+            if not capitals_allowed:
+                options = {
+                    u: dd
+                    for u, dd in options.items()
+                    if u not in COUNTY_CAPITAL_SIRUTA or siruta in data.neighbours.get(u, ())
+                }
+                if not options:
+                    continue
+
             short = {u: dd for u, dd in options.items() if unit_population(u) < params.p_target}
             if short:
                 # Among units that still need people, the nearest by road.
@@ -1000,9 +1041,7 @@ def absorb_leftovers(data: Data, params: Params, result: Result) -> int:
             result.region_of[siruta] = winner
             result.members[winner].append(siruta)
             moved += 1
-        placed += moved
-        if moved == 0:
-            return placed
+        return moved
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:
@@ -1403,6 +1442,39 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             here = result.region_of[siruta]
             if here == siruta:
                 continue
+            # A capital gives back anything beyond its ring that someone else will now take.
+            #
+            # A commune is handed to the capital when nothing else is adjacent at the time,
+            # and units keep growing and merging afterwards, so by the end 56 of them touched
+            # a unit that would have had them. This hands them over, and unlike an ordinary
+            # rebalance it does not require the new seat to be nearer — the rule is that a
+            # capital holds its ring, not that it holds whatever is closest to it.
+            if here in COUNTY_CAPITAL_SIRUTA and siruta not in data.neighbours.get(here, ()):
+                takers = sorted(
+                    {
+                        result.region_of[n]
+                        for n in data.neighbours.get(siruta, ())
+                        if result.region_of[n] != here
+                        and result.region_of[n] not in COUNTY_CAPITAL_SIRUTA
+                        and _may_absorb(data, result.region_of[n], siruta)
+                    }
+                )
+                takers = [
+                    t
+                    for t in takers
+                    if params.max_road_m <= 0
+                    or reach_from(t).get(siruta, math.inf) <= params.max_road_m
+                ]
+                if takers:
+                    rest = [m for m in result.members[here] if m != siruta]
+                    if rest and _is_connected(data, rest):
+                        winner = min(takers, key=lambda t: (reach_from(t).get(siruta, math.inf), t))
+                        result.members[here] = rest
+                        result.members[winner].append(siruta)
+                        result.region_of[siruta] = winner
+                        moved += 1
+                        continue
+
             # A commune bordering its county capital belongs to the capital and is not
             # moved. Rebalancing asks only "is another seat nearer by road", and for a ring
             # commune the answer is often yes — which quietly undid the rule that a capital
@@ -1417,6 +1489,12 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             for neighbour in data.neighbours.get(siruta, ()):
                 there = result.region_of[neighbour]
                 if there == here or not _may_absorb(data, there, siruta):
+                    continue
+                # Never *into* a capital beyond its ring either. Rebalancing asks only
+                # "is another seat nearer by road", and a capital's seat very often is —
+                # which grew the capitals past their ring by 172 communes after growth had
+                # correctly held them to it.
+                if there in COUNTY_CAPITAL_SIRUTA and siruta not in data.neighbours.get(there, ()):
                     continue
                 there_distance = reach_from(there).get(siruta, math.inf)
                 if not there_distance < here_distance:
@@ -1583,6 +1661,10 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
         reseat_units(data, params, result)
         before = len(result.members)
         consolidate_to_target(data, params, result)
+        # Rebalancing belongs inside the loop, not before it: merging changes which units
+        # are adjacent, so a commune the capital had to keep for want of a neighbour can
+        # acquire one only after a merge two counties over has happened.
+        result.rebalanced += rebalance(data, params, result)
         if len(result.members) == before:
             break
     return result, summarise(data, params, result)

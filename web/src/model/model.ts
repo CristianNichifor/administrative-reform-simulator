@@ -769,6 +769,12 @@ function absorbLeftovers(
     return total;
   };
 
+  // Two phases. The first hands out only what a non-capital unit will take, repeated until
+  // it stops; the second lets a capital take what is left. A resedinta de judet holds the
+  // ring bordering it and, beyond that, only what nothing else will have — falling back to
+  // the capital as soon as nothing else had arrived *yet* handed it 130 communes on the
+  // first pass, before the chain of leftovers beside them had a chance to get there.
+  for (const capitalsAllowed of [false, true]) {
   for (;;) {
     let moved = 0;
     for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
@@ -781,6 +787,16 @@ function absorbLeftovers(
           countyRoadDistances(data, data.countyOf[unit]!, [unit]).get(siruta) ?? Infinity;
         if (params.maxRoadM > 0 && distance > params.maxRoadM) continue;
         if (distance < (options.get(unit) ?? Infinity)) options.set(unit, distance);
+      }
+      if (!capitalsAllowed) {
+        for (const unit of [...options.keys()]) {
+          if (!isCountyCapital(data, unit)) continue;
+          let onRing = false;
+          for (let e = data.neighbourStart[unit]!; e < data.neighbourStart[unit + 1]!; e += 1) {
+            if (data.neighbours[e] === siruta) { onRing = true; break; }
+          }
+          if (!onRing) options.delete(unit);
+        }
       }
       if (options.size === 0) continue;
 
@@ -805,7 +821,8 @@ function absorbLeftovers(
       reasonOf[siruta] = REASON.ABSORBED_SEAT;
       moved += 1;
     }
-    if (moved === 0) return;
+    if (moved === 0) break;
+  }
   }
 }
 
@@ -1323,6 +1340,11 @@ const REBALANCE_SWEEPS = 8;
 const SETTLE_ROUNDS = 6;
 
 /** Whether a set of communes forms one piece over the road-connected graph. */
+/** A resedinta de judet. `isCapital` also covers the Bucharest sectors, which this is not. */
+function isCountyCapital(data: ModelData, unit: number): boolean {
+  return data.attributes.isCapital[unit] === true && data.countyOf[unit] !== data.bucharestCounty;
+}
+
 function isConnected(data: ModelData, group: number[]): boolean {
   const inside = new Set(group);
   const seen = new Set([group[0]!]);
@@ -1377,11 +1399,50 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
     for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
       const here = regionOf[siruta]!;
       if (here === siruta) continue;
+      // A capital gives back anything beyond its ring that someone else will now take.
+      // A commune is handed to the capital when nothing else is adjacent at the time, and
+      // units keep growing and merging afterwards. Unlike an ordinary rebalance this does
+      // not require the new seat to be nearer: the rule is that a capital holds its ring,
+      // not that it holds whatever is closest to it.
+      if (isCountyCapital(data, here)) {
+        let onRing = false;
+        for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
+          if (data.neighbours[e] === siruta) { onRing = true; break; }
+        }
+        if (!onRing) {
+          const takers: number[] = [];
+          for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
+            const other = regionOf[data.neighbours[e]!]!;
+            if (other === here || isCountyCapital(data, other)) continue;
+            if (!mayAbsorb(data, other, siruta)) continue;
+            const away = reachFrom(other).get(siruta) ?? Infinity;
+            if (params.maxRoadM > 0 && away > params.maxRoadM) continue;
+            if (!takers.includes(other)) takers.push(other);
+          }
+          if (takers.length > 0) {
+            const current = members.get(here)!;
+            const rest = current.filter((mm) => mm !== siruta);
+            if (rest.length > 0 && isConnected(data, rest)) {
+              takers.sort((a, b) => {
+                const da = reachFrom(a).get(siruta) ?? Infinity;
+                const db = reachFrom(b).get(siruta) ?? Infinity;
+                return da !== db ? da - db : a - b;
+              });
+              members.set(here, rest);
+              members.get(takers[0]!)!.push(siruta);
+              regionOf[siruta] = takers[0]!;
+              moved += 1;
+              continue;
+            }
+          }
+        }
+      }
+
       // A commune bordering its county capital belongs to the capital and is not moved.
       // Rebalancing asks only "is another seat nearer by road", and for a ring commune the
       // answer is often yes — which quietly undid the rule. Twenty-four of the forty-one
       // capitals had lost part of their ring to this pass.
-      if (data.attributes.isCapital[here] && data.countyOf[here] !== data.bucharestCounty) {
+      if (isCountyCapital(data, here)) {
         let onRing = false;
         for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
           if (data.neighbours[e] === siruta) { onRing = true; break; }
@@ -1395,6 +1456,16 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
         const there = regionOf[data.neighbours[e]!]!;
         if (there === here || !mayAbsorb(data, there, siruta)) continue;
+        // Never *into* a capital beyond its ring. Rebalancing asks only "is another seat
+        // nearer by road", and a capital's seat very often is, which grew the capitals past
+        // their ring by 172 communes after growth had correctly held them to it.
+        if (isCountyCapital(data, there)) {
+          let onRingOfThere = false;
+          for (let k = data.neighbourStart[there]!; k < data.neighbourStart[there + 1]!; k += 1) {
+            if (data.neighbours[k] === siruta) { onRingOfThere = true; break; }
+          }
+          if (!onRingOfThere) continue;
+        }
         const thereDistance = reachFrom(there).get(siruta) ?? Infinity;
         if (!(thereDistance < hereDistance)) continue;
         if (params.maxRoadM > 0 && thereDistance > params.maxRoadM) continue;
@@ -1475,9 +1546,27 @@ export function runModel(data: ModelData, params: Params, pins: Pin[] = []): Mod
     const before = new Set<number>();
     for (let i = 0; i < data.uatCount; i += 1) before.add(regionOf[i]!);
     belowTarget = consolidateToTarget(data, params, regionOf, orphanSeats, reasonOf, tierOf);
+    // Rebalancing belongs inside the loop: merging changes which units are adjacent, so a
+    // commune the capital had to keep for want of a neighbour can acquire one only after a
+    // merge elsewhere has happened.
+    rebalance(data, params, regionOf);
     const after = new Set<number>();
     for (let i = 0; i < data.uatCount; i += 1) after.add(regionOf[i]!);
     if (after.size === before.size) break;
+  }
+
+  // Counted from the finished map, not taken from the last consolidation pass. Rebalancing
+  // runs after that pass and moves communes between units, so the figure it returned is
+  // stale by the time the loop ends — off by one against the reference, which counts at the
+  // end.
+  if (params.pTarget > 0) {
+    const totals = new Map<number, number>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const seat = regionOf[i]!;
+      totals.set(seat, (totals.get(seat) ?? 0) + data.population[i]!);
+    }
+    belowTarget = 0;
+    for (const total of totals.values()) if (total < params.pTarget) belowTarget += 1;
   }
 
   const { pinsApplied, pinsRejected, splitUnits } = applyPins(

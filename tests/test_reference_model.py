@@ -16,6 +16,7 @@ from pipeline.reference_model import (
     Params,
     _county_capital,
     _county_road_distances,
+    _is_connected,
     load_data,
     run,
 )
@@ -39,7 +40,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 250
+SNAPSHOT_DEFAULT_REGIONS = 248
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -451,3 +452,46 @@ class TestCompactness:
         result, _ = default_run
         explicit, _ = run(data, Params(min_compactness=0.0))
         assert result.region_of == explicit.region_of
+
+
+class TestCapitalBeyondItsRing:
+    """A capital holds its ring, and beyond it only what nobody else will take.
+
+    Growth was made to respect this three separate times, and each time a later step undid
+    it: handing out leftovers put 130 communes into capitals, and the rebalancing pass added
+    another 172 by moving anything whose nearest seat happened to be the capital. Asserted on
+    the finished map, because that is the only place the rule is actually visible.
+    """
+
+    def test_extras_have_nowhere_else_to_go(self, data, default_run) -> None:
+        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
+
+        result, summary = default_run
+        unjustified: list[str] = []
+        for capital in sorted(COUNTY_CAPITAL_SIRUTA):
+            if capital not in data.population or result.region_of.get(capital) != capital:
+                continue
+            ring = set(data.neighbours.get(capital, ())) | {capital}
+            for member in sorted(set(result.members[capital]) - ring):
+                takers = {
+                    result.region_of[n]
+                    for n in data.neighbours.get(member, ())
+                    if data.county[n] == data.county[member]
+                } - {capital}
+                takers = {t for t in takers if t not in COUNTY_CAPITAL_SIRUTA}
+                if not takers:
+                    continue
+                # Two reasons a taker still cannot have it: the capital's unit would come
+                # apart without it, or every taker is beyond the distance cap.
+                rest = [m for m in result.members[capital] if m != member]
+                if not rest or not _is_connected(data, rest):
+                    continue
+                reachable = [
+                    t
+                    for t in takers
+                    if _county_road_distances(data, data.county[t], [t]).get(member, math.inf)
+                    <= summary["params"].max_road_m
+                ]
+                if reachable:
+                    unjustified.append(f"{data.name[capital]} keeps {data.name[member]}")
+        assert unjustified == []

@@ -508,6 +508,27 @@ county rule, so a cluster is marked by its badge in the panel instead.
 constraint in the model, so knowing which county you are looking at explains more of the
 shape on screen than any other single line.
 
+## What a capital may hold
+
+A reședință de județ takes the ring of communes bordering it and, beyond that, only what
+nothing else will have.
+
+Growth was made to respect this and did. The steps *after* growth did not, and between them
+they put 302 communes into capitals beyond their ring: handing out leftovers added 130,
+because a commune whose neighbours had not yet been reached was given to the capital
+immediately; rebalancing added 172, because it asks only "is another seat nearer by road" and
+a capital's seat very often is.
+
+Three rules now hold the line. Leftovers are handed out in two phases, so a capital only gets
+what remains after every other unit has finished reaching outward. Rebalancing never moves a
+commune *into* a capital beyond its ring. And a capital **gives back** anything beyond its
+ring that another unit will take — units keep growing and merging after a commune is handed
+over, so one that had no neighbour at the time often acquires one later.
+
+That takes it from 302 to 64, and every one of the 64 has a reason: 10 would split the
+capital's unit in two if removed, 30 have every alternative past the distance cap, and 24 have
+no other unit adjacent at all. None is simply the capital reaching further than it should.
+
 ## No leftovers
 
 A commune no centre reached used to start a unit of its own with the other communes nobody
