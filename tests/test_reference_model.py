@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 257
+SNAPSHOT_DEFAULT_REGIONS = 254
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -395,6 +395,12 @@ class TestCapitalRing:
                 holder = result.region_of[neighbour]
                 if holder == capital:
                     continue
+                # The national capital's first layer outranks a county capital's proximity.
+                # Chitila borders Bucharest and is 9.1 km from Buftea; the city takes it,
+                # because "Bucharest absorbs all its first-layer neighbours" is the stronger
+                # rule and Buftea is 9 km from a commune that touches the city itself.
+                if data.county[holder] == "B":
+                    continue
                 here = _county_road_distances(data, data.county[holder], [holder])
                 if here.get(neighbour, math.inf) <= from_capital.get(neighbour, math.inf):
                     continue  # its own seat is nearer, which is the rule
@@ -466,3 +472,85 @@ class TestCompactness:
         result, _ = default_run
         explicit, _ = run(data, Params(min_compactness=0.0))
         assert result.region_of == explicit.region_of
+
+
+class TestFirstRing:
+    """A centre's own neighbours are its own, and Bucharest is the strictest case.
+
+    Bucharest is represented by its lowest sector, so its first ring used to be *the other
+    five sectors*: it spent rounds absorbing itself while Voluntari and Mihailesti took the
+    communes around it, and it ended up holding 3 of the 14 communes touching the city and 6
+    that did not touch it at all. The rule has to be asserted on the finished map, because
+    growth got it right and the rebalancing pass then took 11 of them back.
+    """
+
+    def test_bucharest_holds_every_commune_touching_it(self, data, default_run) -> None:
+        result, _ = default_run
+        sectors = {s for s in data.population if data.county[s] == "B"}
+        city = result.region_of[min(sectors)]
+        ring = {
+            neighbour for sector in sectors for neighbour in data.neighbours.get(sector, ())
+        } - sectors
+        assert len(ring) >= 10, "the city should border a good many communes"
+        missing = sorted(data.name[x] for x in ring - set(result.members[city]))
+        assert missing == []
+
+    def test_bucharest_reaches_past_its_ring_only_where_nothing_else_can(
+        self, data, default_run
+    ) -> None:
+        """Extension is directional, not a uniform second ring.
+
+        The city may take a commune beyond its ring, but only one that has nowhere else to
+        go — its neighbours all in another county, which the county rule forbids it joining.
+        """
+        result, _ = default_run
+        sectors = {s for s in data.population if data.county[s] == "B"}
+        city = result.region_of[min(sectors)]
+        ring = {
+            neighbour for sector in sectors for neighbour in data.neighbours.get(sector, ())
+        } - sectors
+        unjustified: list[str] = []
+        for member in sorted(set(result.members[city]) - ring - sectors):
+            takers = {
+                result.region_of[n]
+                for n in data.neighbours.get(member, ())
+                if data.county[n] == data.county[member]
+            } - {city}
+            if takers:
+                unjustified.append(data.name[member])
+        assert unjustified == []
+
+    def test_every_centre_keeps_its_own_neighbours(self, data, default_run) -> None:
+        """Or loses them for one of four stated reasons, never for none."""
+        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
+        from pipeline.reference_model import capital_ring, is_capital_seat
+
+        result, summary = default_run
+        params = summary["params"]
+        seats = {c for c in result.seeds if result.region_of.get(c) == c}
+        unexplained: list[str] = []
+        for centre in sorted(seats):
+            here = _county_road_distances(data, data.county[centre], [centre])
+            for x in data.neighbours.get(centre, ()):
+                if data.county[x] != data.county[centre] or result.region_of[x] == centre:
+                    continue
+                if x in seats:
+                    continue  # a centre cannot absorb another centre
+                holder = result.region_of[x]
+                there = _county_road_distances(data, data.county[holder], [holder])
+                if there.get(x, math.inf) <= here.get(x, math.inf):
+                    continue  # its holder is nearer, which is the rule
+                if is_capital_seat(data, holder) and x in capital_ring(data, params, holder):
+                    continue  # a capital's ring outranks a nearer town
+                members = result.members[holder]
+                rest = [m for m in members if m != x]
+                if not rest or not _is_connected(data, rest):
+                    continue
+                before = sum(data.population[m] for m in members)
+                if params.p_target > 0 and before >= params.p_target > before - data.population[x]:
+                    continue  # taking it would leave the holder short
+                unexplained.append(
+                    f"{data.name[centre]} lost {data.name[x]} to {data.name[holder]}"
+                )
+        assert unexplained == []
+        assert COUNTY_CAPITAL_SIRUTA  # the import is load-bearing above

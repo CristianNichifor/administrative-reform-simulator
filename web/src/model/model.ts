@@ -202,13 +202,31 @@ function eligibleFor(data: ModelData, params: Params, seed: number, tier: number
   // buffer round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
   // them past 10 km by road and one at 30 km. Bucharest is deliberately excluded — it is the
   // national capital, not a resedinta de judet, and its ring is two communes deep.
+  // A centre's own neighbours are always its own. This is the floor under everything else,
+  // and it was missing: eligibility was decided by area overlap against a buffer, which knows
+  // nothing about who borders whom.
+  const ring = new Set<number>();
+  if (tier === TIER_NATIONAL_CAPITAL) {
+    for (const sector of data.bucharestSectors) {
+      for (let e = data.neighbourStart[sector]!; e < data.neighbourStart[sector + 1]!; e += 1) {
+        const nb = data.neighbours[e]!;
+        if (mayAbsorb(data, seed, nb)) ring.add(nb);
+      }
+    }
+  } else {
+    for (let e = data.neighbourStart[seed]!; e < data.neighbourStart[seed + 1]!; e += 1) {
+      const nb = data.neighbours[e]!;
+      if (mayAbsorb(data, seed, nb)) ring.add(nb);
+    }
+  }
+
   if (tier === TIER_COUNTY_CAPITAL) {
     for (const nb of capitalReach(data, params, seed)) admitted.set(nb, 0);
+    for (const nb of ring) admitted.set(nb, 0);
     return admitted;
   }
 
   const slice = sliceFor(data, params, tier);
-  const radius = tierRadius(params, tier);
   // Candidacy is precomputed per UAT and Bucharest is represented by one sector, whose
   // buffer points north-west; the city's reach is the union of its six sectors'. Without
   // this the capital absorbed Chitila and nothing else.
@@ -224,12 +242,10 @@ function eligibleFor(data: ModelData, params: Params, seed: number, tier: number
         }
       }
     }
-    for (let e = data.neighbourStart[source]!; e < data.neighbourStart[source + 1]!; e += 1) {
-      const nb = data.neighbours[e]!;
-      if (admitted.has(nb) || !mayAbsorb(data, seed, nb)) continue;
-      if (data.neighbourRoadM[e]! <= radius) admitted.set(nb, 0);
-    }
+
   }
+  // The ring goes in whatever the radius said.
+  for (const nb of ring) if (!admitted.has(nb)) admitted.set(nb, 0);
   return admitted;
 }
 
@@ -604,11 +620,21 @@ function grow(
     eligible.set(seed, eligibleFor(data, params, seed, tierOf[seed]!));
     gathered.set(seed, 0);
     reached.set(seed, new Map());
-    if (regionOf[seed] !== NO_REGION || blocked.has(seed)) continue;
-    regionOf[seed] = seed;
-    members.set(seed, [...(members.get(seed) ?? []), seed]);
-    gathered.set(seed, gathered.get(seed)! + data.population[seed]!);
-    reached.get(seed)!.set(seed, 0);
+    // The city starts whole. Bucharest is represented by its lowest sector, so its first
+    // ring used to be the other five sectors: it spent rounds absorbing itself while
+    // Voluntari and Mihailesti took the communes around it at their own first ring.
+    const opening =
+      tierOf[seed] === TIER_NATIONAL_CAPITAL ? data.bucharestSectors : [seed];
+    let claimedAny = false;
+    for (const member of opening) {
+      if (regionOf[member] !== NO_REGION || blocked.has(member)) continue;
+      regionOf[member] = seed;
+      members.set(seed, [...(members.get(seed) ?? []), member]);
+      gathered.set(seed, gathered.get(seed)! + data.population[member]!);
+      reached.get(seed)!.set(member, 0);
+      claimedAny = true;
+    }
+    if (!claimedAny) continue;
     const tier = tierOf[seed]!;
     reasonOf[seed] =
       tier === TIER_NATIONAL_CAPITAL || tier === TIER_COUNTY_CAPITAL
@@ -1370,6 +1396,44 @@ function isCountyCapital(data: ModelData, unit: number): boolean {
   return data.attributes.isCapital[unit] === true && data.countyOf[unit] !== data.bucharestCounty;
 }
 
+/**
+ * A capital of either kind — and Bucharest kept being missed.
+ *
+ * Every rule protecting a capital's ring was written against county capitals, so growth
+ * handed the city all 14 communes touching it and the rebalancing pass took 11 straight back:
+ * it ended up holding 3 of its own neighbours and 6 communes that do not touch it at all.
+ */
+function isCapitalSeat(data: ModelData, unit: number): boolean {
+  return isCountyCapital(data, unit) || data.countyOf[unit] === data.bucharestCounty;
+}
+
+/**
+ * What a capital holds by right: the ring bordering it — for Bucharest, the ring around all
+ * six sectors — plus, for a resedinta de judet, its radius by road.
+ *
+ * Deliberately not the candidacy set: protecting that shielded 17 communes around Bucharest
+ * that all had another unit adjacent and none of which were stranded, so the city grew a
+ * uniform second ring instead of reaching only where it was needed.
+ */
+function capitalRing(data: ModelData, params: Params, unit: number): Set<number> {
+  const out = new Set<number>();
+  if (data.countyOf[unit] === data.bucharestCounty) {
+    for (const sector of data.bucharestSectors) {
+      for (let e = data.neighbourStart[sector]!; e < data.neighbourStart[sector + 1]!; e += 1) {
+        const nb = data.neighbours[e]!;
+        if (mayAbsorb(data, unit, nb)) out.add(nb);
+      }
+    }
+    return out;
+  }
+  for (let e = data.neighbourStart[unit]!; e < data.neighbourStart[unit + 1]!; e += 1) {
+    const nb = data.neighbours[e]!;
+    if (mayAbsorb(data, unit, nb)) out.add(nb);
+  }
+  for (const nb of capitalReach(data, params, unit)) out.add(nb);
+  return out;
+}
+
 function isConnected(data: ModelData, group: number[]): boolean {
   const inside = new Set(group);
   const seen = new Set([group[0]!]);
@@ -1429,8 +1493,8 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       // units keep growing and merging afterwards. Unlike an ordinary rebalance this does
       // not require the new seat to be nearer: the rule is that a capital holds its ring,
       // not that it holds whatever is closest to it.
-      if (isCountyCapital(data, here)) {
-        const onRing = capitalReach(data, params, here).has(siruta);
+      if (isCapitalSeat(data, here)) {
+        const onRing = capitalRing(data, params, here).has(siruta);
         if (!onRing) {
           const hereAway = reachFrom(here).get(siruta) ?? Infinity;
           const takers: number[] = [];
@@ -1470,7 +1534,7 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       // Rebalancing asks only "is another seat nearer by road", and for a ring commune the
       // answer is often yes — which quietly undid the rule. Twenty-four of the forty-one
       // capitals had lost part of their ring to this pass.
-      if (isCountyCapital(data, here) && capitalReach(data, params, here).has(siruta)) continue;
+      if (isCapitalSeat(data, here) && capitalRing(data, params, here).has(siruta)) continue;
       const hereDistance = reachFrom(here).get(siruta) ?? Infinity;
 
       let target = -1;

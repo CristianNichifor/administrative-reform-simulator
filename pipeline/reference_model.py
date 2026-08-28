@@ -355,19 +355,30 @@ def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, flo
     not decide who your administration is. The overlap threshold stays as the guard against
     sliver absorptions it was always meant to be.
     """
-    # A county capital takes the ring that borders it, and nothing beyond.
+    # A centre's own neighbours are always its own.
     #
-    # The radius does not mean what its name suggests: candidacy is area overlap against a
-    # buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes,
-    # 15 of them past 10 km by road and one at 30 km. A capital bounded that way sprawls
-    # while the towns around it stay small. The first ring is unambiguous, it is what
-    # "absorbs the nearby neighbours" says, and it does not depend on the shape of the city.
-    #
-    # Bucharest is deliberately not included. It is the national capital, not a resedinta de
-    # judet, and its ring is genuinely two communes deep — Cernica borders Pantelimon rather
-    # than a sector, and belongs to the city all the same.
+    # This is the floor under everything else here, and it was missing. Eligibility was
+    # decided by area overlap against a buffer, which knows nothing about who borders whom:
+    # Bucharest held 3 of the 14 communes touching the city and 6 that did not touch it at
+    # all. A commune that shares a border with a centre should never be reached past.
+    ring = {
+        neighbour
+        for neighbour in data.neighbours.get(seed, ())
+        if _may_absorb(data, seed, neighbour)
+    }
+    if tier == TIER_NATIONAL_CAPITAL:
+        # The city is represented by one sector, so its ring is the ring of all six.
+        ring = {
+            neighbour
+            for sector in data.population
+            if data.county[sector] == BUCHAREST_COUNTY_CODE
+            for neighbour in data.neighbours.get(sector, ())
+            if _may_absorb(data, seed, neighbour)
+        }
+
+    # A county capital: its ring, plus everything inside its radius by road.
     if tier == TIER_COUNTY_CAPITAL:
-        return dict.fromkeys(capital_reach(data, params, seed), 0.0)
+        return dict.fromkeys(ring | capital_reach(data, params, seed), 0.0)
 
     radius = _tier_radius(params, tier)
 
@@ -384,13 +395,9 @@ def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, flo
         for target, fraction, seat_inside in data.candidacy.get((radius, source), ()):
             if fraction >= params.min_overlap or seat_inside:
                 admitted[target] = max(admitted.get(target, 0.0), fraction)
-    for source in sources:
-        for neighbour in data.neighbours.get(source, ()):
-            if neighbour in admitted or not _may_absorb(data, seed, neighbour):
-                continue
-            step = data.road_distance.get((source, neighbour), _distance(data, source, neighbour))
-            if step <= radius:
-                admitted[neighbour] = 0.0
+    # The ring goes in whatever the radius said.
+    for neighbour in ring:
+        admitted.setdefault(neighbour, 0.0)
     return admitted
 
 
@@ -633,6 +640,47 @@ def _capital_reach_cached(data_id: int, capital: str, radius: int) -> frozenset[
     )
 
 
+def is_capital_seat(data: Data, unit: str) -> bool:
+    """A resedinta de judet, or Bucharest — which is a capital too, and kept being missed.
+
+    Every rule protecting a capital's ring was written against `COUNTY_CAPITAL_SIRUTA`, which
+    does not contain the Bucharest sectors. So growth handed the city all 14 communes
+    touching it and the rebalancing pass then took 11 of them straight back, because nothing
+    stopped it: the city ended up holding 3 of its own neighbours and 6 communes that do not
+    touch it.
+    """
+    return unit in COUNTY_CAPITAL_SIRUTA or data.county[unit] == BUCHAREST_COUNTY_CODE
+
+
+def capital_ring(data: Data, params: Params, unit: str) -> set[str]:
+    """What a capital holds by right, and nothing more.
+
+    The ring that borders it — for Bucharest, the ring around all six sectors — plus, for a
+    resedinta de judet, its radius by road, because Calarasi sits on the Danube with three
+    land neighbours and would otherwise be unable to take Roseti 9.9 km away.
+
+    Deliberately *not* the candidacy set. Protecting that instead shielded 17 communes around
+    Bucharest that all had another unit adjacent and none of which were stranded: the city
+    grew a uniform second ring rather than reaching only where it was needed. Anything past
+    what a capital holds by right has to earn its place by being nearer to this seat than to
+    any other, which the rebalancing pass decides.
+    """
+    ring = {
+        neighbour
+        for neighbour in data.neighbours.get(unit, ())
+        if _may_absorb(data, unit, neighbour)
+    }
+    if data.county[unit] == BUCHAREST_COUNTY_CODE:
+        return {
+            neighbour
+            for sector in data.population
+            if data.county[sector] == BUCHAREST_COUNTY_CODE
+            for neighbour in data.neighbours.get(sector, ())
+            if _may_absorb(data, unit, neighbour)
+        }
+    return ring | capital_reach(data, params, unit)
+
+
 def capital_reach(data: Data, params: Params, capital: str) -> set[str]:
     """What a county capital absorbs: everything within its radius by road.
 
@@ -851,10 +899,22 @@ def _grow(
     for seed in sorted(sources):
         if seed in result.region_of or seed in blocked:
             continue
-        result.region_of[seed] = seed
-        result.members.setdefault(seed, []).append(seed)
-        gathered[seed] += data.population[seed]
-        distance_to[(seed, seed)] = 0.0
+        # The city starts whole. Bucharest is represented by its lowest sector, so its first
+        # ring used to be *the other five sectors* — it spent two or three rounds absorbing
+        # itself while Voluntari and Mihailesti took the communes around it at their own
+        # first ring. It held 3 of the 14 communes touching the city and 6 that did not touch
+        # it at all. The sectors are Bucharest already; they are claimed at distance zero so
+        # that the city's first ring is the city's actual ring.
+        opening = [seed]
+        if result.seeds[seed] == TIER_NATIONAL_CAPITAL:
+            opening = sorted(s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE)
+        for member in opening:
+            if member in result.region_of or member in blocked:
+                continue
+            result.region_of[member] = seed
+            result.members.setdefault(seed, []).append(member)
+            gathered[seed] += data.population[member]
+            distance_to[(seed, member)] = 0.0
 
     def is_capped(absorber: str) -> bool:
         return result.seeds[absorber] not in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
@@ -1490,7 +1550,7 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             # a unit that would have had them. This hands them over, and unlike an ordinary
             # rebalance it does not require the new seat to be nearer — the rule is that a
             # capital holds its ring, not that it holds whatever is closest to it.
-            if here in COUNTY_CAPITAL_SIRUTA and siruta not in capital_reach(data, params, here):
+            if is_capital_seat(data, here) and siruta not in capital_ring(data, params, here):
                 takers = sorted(
                     {
                         result.region_of[n]
@@ -1529,7 +1589,7 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             # commune the answer is often yes — which quietly undid the rule that a capital
             # absorbs the ring around it. Twenty-four of the forty-one capitals had lost
             # part of their ring to this pass.
-            if here in COUNTY_CAPITAL_SIRUTA and siruta in capital_reach(data, params, here):
+            if is_capital_seat(data, here) and siruta in capital_ring(data, params, here):
                 continue
             members = result.members[here]
             here_distance = reach_from(here).get(siruta, math.inf)
