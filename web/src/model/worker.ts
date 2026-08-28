@@ -8,7 +8,7 @@
 
 import { decode } from './load';
 import { assignUnitColours } from './colour';
-import { mergeBlocker, runModel } from './model';
+import { countyRoadDistances, mergeBlocker, runModel } from './model';
 import type { Attributes, Manifest, ModelData, Params, Pin } from './types';
 
 export interface InitMessage {
@@ -37,7 +37,26 @@ export interface ExplainMessage {
   seats: number[];
 }
 
-export type Incoming = InitMessage | ComputeMessage | ExplainMessage;
+/**
+ * Road distance from a commune to the seats of the units around it.
+ *
+ * Answers the question the map cannot: why is Hamcearca under Topolog rather than Isaccea?
+ * Asked on hover rather than shipped with every result, because it is one Dijkstra per
+ * commune looked at and nobody looks at more than a few.
+ */
+export interface SeatDistanceMessage {
+  type: 'seatDistances';
+  uat: number;
+}
+
+export type Incoming = InitMessage | ComputeMessage | ExplainMessage | SeatDistanceMessage;
+
+export interface SeatDistanceResultMessage {
+  type: 'seat-distances';
+  uat: number;
+  /** Nearest first; `own` marks the unit it actually belongs to. */
+  seats: { seat: number; metres: number; own: boolean }[];
+}
 
 export interface ExplainResultMessage {
   type: 'explain-result';
@@ -63,6 +82,8 @@ export interface ReadyMessage {
    * drag would be work that can never change the answer.
    */
   currentColourOf: Uint8Array;
+  /** County code to full name, for the panel. */
+  countyNames: Record<string, string>;
 }
 
 export interface ResultMessage {
@@ -92,7 +113,12 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type Outgoing = ReadyMessage | ResultMessage | ErrorMessage | ExplainResultMessage;
+export type Outgoing =
+  | ReadyMessage
+  | ResultMessage
+  | ErrorMessage
+  | ExplainResultMessage
+  | SeatDistanceResultMessage;
 
 // `self` in a module worker is a DedicatedWorkerGlobalScope, whose postMessage takes a
 // transfer list. The DOM lib types it as Window, which has a different signature.
@@ -147,6 +173,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         adminPersonnelRon: data.adminPersonnelRon.slice(),
         incomeRon: data.incomeRon.slice(),
         currentColourOf,
+        countyNames: data.manifest.countyNames ?? {},
       };
       self.postMessage(ready, [
         ready.population.buffer,
@@ -158,6 +185,30 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         ready.incomeRon.buffer,
         ready.currentColourOf.buffer,
       ]);
+      return;
+    }
+
+    if (message.type === 'seatDistances') {
+      if (!data || !lastRegionOf || !lastParams) return;
+      const uat = message.uat;
+      const county = data.countyOf[uat]!;
+      const own = lastRegionOf[uat]!;
+      const seats = new Set<number>();
+      for (let i = 0; i < data.uatCount; i += 1) {
+        if (data.countyOf[i] === county) seats.add(lastRegionOf[i]!);
+      }
+      const rows: SeatDistanceResultMessage['seats'] = [];
+      for (const seat of seats) {
+        const metres = countyRoadDistances(data, data.countyOf[seat]!, [seat]).get(uat);
+        if (metres === undefined || !Number.isFinite(metres)) continue;
+        rows.push({ seat, metres, own: seat === own });
+      }
+      rows.sort((a, b) => a.metres - b.metres);
+      self.postMessage({
+        type: 'seat-distances',
+        uat,
+        seats: rows.slice(0, 5),
+      } satisfies SeatDistanceResultMessage);
       return;
     }
 

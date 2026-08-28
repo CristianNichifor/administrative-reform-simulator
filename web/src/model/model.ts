@@ -277,7 +277,7 @@ function sliceFor(data: ModelData, params: Params, tier: number): RadiusSlice | 
  */
 const singleSourceCache = new WeakMap<ModelData, Map<number, Map<number, number>>>();
 
-function countyRoadDistances(
+export function countyRoadDistances(
   data: ModelData,
   county: number,
   sources: number[],

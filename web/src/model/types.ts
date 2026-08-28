@@ -83,6 +83,8 @@ export interface Manifest {
   radiusGrid: number[];
   edgeCount: number;
   candidacyCount: number;
+  /** County code to full name, so the panel can say "Tulcea" rather than "TL". */
+  countyNames: Record<string, string>;
   candidacyByRadius: Record<string, { start: number; count: number }>;
 }
 

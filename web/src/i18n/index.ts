@@ -92,6 +92,7 @@ export interface Strings {
 
   hoverProposed: string;
   hoverCommunes: string;
+  hoverSeatDistances: string;
   selectPrompt: string;
   region: string;
   centre: string;
@@ -237,6 +238,7 @@ const ro: Strings = {
 
   hoverProposed: 'Unitate propusă',
   hoverCommunes: 'comune',
+  hoverSeatDistances: 'Distanța pe drum până la reședințele din jur',
   selectPrompt: 'Selectează o unitate pe hartă.',
   region: 'Unitate rezultată',
   centre: 'Centru',
@@ -382,6 +384,7 @@ const en: Strings = {
 
   hoverProposed: 'Proposed unit',
   hoverCommunes: 'communes',
+  hoverSeatDistances: 'Road distance to the seats around it',
   selectPrompt: 'Select a unit on the map.',
   region: 'Resulting unit',
   centre: 'Centre',

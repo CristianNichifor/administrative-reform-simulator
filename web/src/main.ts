@@ -112,6 +112,12 @@ const isRadius = (key: keyof Params): boolean =>
  * UAT set has no "Municipiul Bucuresti" row. Naming the resulting unit "Sectorul 1" would
  * describe the merge as an annexation by one sector, which is not what it is.
  */
+/** "Tulcea", not "TL". The payload carries the code; the manifest carries the name. */
+function countyName(data: ReadyMessage, index: number): string {
+  const code = data.attributes.county[index] ?? '';
+  return data.countyNames[code] ?? code;
+}
+
 function unitName(data: ReadyMessage, seat: number): string {
   if (data.attributes.county[seat] === 'B') return 'MUNICIPIUL BUCUREȘTI';
   return data.attributes.name[seat]!;
@@ -751,6 +757,22 @@ async function boot(): Promise<void> {
       return;
     }
 
+    if (message.type === 'seat-distances') {
+      const slot = hovercard.querySelector<HTMLElement>('.seat-distances');
+      if (!slot || !ready || slot.dataset.uat !== String(message.uat)) return;
+      slot.innerHTML =
+        `<div class="sd-title">${strings.hoverSeatDistances}</div>` +
+        message.seats
+          .map(
+            (row) =>
+              `<div class="line${row.own ? ' own' : ''}">` +
+              `<span>${unitName(ready!, row.seat)}</span>` +
+              `<span>${(row.metres / 1000).toFixed(1)} km</span></div>`,
+          )
+          .join('');
+      return;
+    }
+
     if (message.type === 'explain-result') {
       for (const blocker of message.blockers) {
         const note = el<HTMLElement>('#audit').querySelector<HTMLElement>(
@@ -857,7 +879,7 @@ async function boot(): Promise<void> {
     const unchanged = unitMembers === 1;
     hovercard.innerHTML = `
       <div class="name">${ready.attributes.name[index]}</div>
-      <div class="county">${ready.attributes.county[index]}</div>
+      <div class="county">${countyName(ready, index)}</div>
       <div class="line"><span>${strings.population}</span><span>${formatNumber(
         ready.population[index]!,
         scenario.lang,
@@ -875,7 +897,11 @@ async function boot(): Promise<void> {
                 scenario.lang,
               )} ${strings.hoverCommunes}</div>`
         }
-      </div>`;
+      </div>
+      <div class="seat-distances" data-uat="${index}"></div>`;
+    // Filled in when the worker answers. This is the question the map itself cannot show:
+    // why is this commune under Topolog rather than Isaccea?
+    worker.postMessage({ type: 'seatDistances', uat: index });
     hovercard.hidden = false;
     // Kept inside the viewport: near the right or bottom edge the card flips to the other
     // side of the cursor rather than being clipped.

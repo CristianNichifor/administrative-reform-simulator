@@ -991,3 +991,38 @@ button.link:hover {
 .audit-why:empty {
   display: none;
 }
+
+/* --- road distance to the seats around a commune ------------------------------------- */
+
+.seat-distances {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.seat-distances:empty {
+  display: none;
+}
+
+.seat-distances .sd-title {
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.seat-distances .line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* The one it actually belongs to. */
+.seat-distances .line.own {
+  color: var(--text);
+  font-weight: 600;
+}

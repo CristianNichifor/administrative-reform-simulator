@@ -536,6 +536,14 @@ def main(argv: list[str] | None = None) -> int:
         "traversableEdgeCount": int(len(usable)),
         "candidacyCount": int(cursor),
         "candidacyByRadius": radius_offsets,
+        # Code to full name, so the panel can say "Tulcea" rather than "TL". 42 entries;
+        # the payload already carries the code on every UAT and nothing else knew the name.
+        "countyNames": {
+            # Diacritics kept: county_key folds them for matching, which would print
+            # "Calarasi" and "Iasi" at people who live there.
+            code: str(name).removeprefix("MUNICIPIUL ").title()
+            for code, name in zip(uats["county_code"], uats["county_name"], strict=True)
+        },
     }
     (WEB_DATA_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
