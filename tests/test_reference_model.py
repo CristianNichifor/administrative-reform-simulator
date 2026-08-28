@@ -399,3 +399,55 @@ class TestCapitalRing:
                     f"{data.name[capital]} lost {data.name[neighbour]} ({road / 1000:.1f} km)"
                 )
         assert missing == []
+
+
+class TestCompactness:
+    """The shape floor, and the arithmetic it rests on."""
+
+    def test_incremental_shape_matches_the_merged_polygons(self, data, default_run) -> None:
+        """The formula must agree with the geometry it replaces.
+
+        A unit's outline is computed from its members' perimeters less twice the borders
+        inside it, so the browser never has to carry a polygon. If that arithmetic drifts
+        from the real shape, every compactness figure in the tool is wrong and nothing else
+        would notice.
+        """
+        import geopandas as gpd
+
+        from pipeline.constants import CRS_STEREO70
+        from pipeline.paths import PROCESSED_DIR
+        from pipeline.reference_model import compactness
+
+        result, _ = default_run
+        shapes = (
+            gpd.read_file(PROCESSED_DIR / "uat_geometry.gpkg", layer="uat")
+            .to_crs(CRS_STEREO70)
+            .set_index("siruta")
+        )
+        checked = 0
+        for seat in sorted(result.members)[:40]:
+            members = result.members[seat]
+            if len(members) < 2:
+                continue
+            merged = shapes.loc[members, "geometry"].union_all()
+            expected = 4 * math.pi * merged.area / (merged.length**2)
+            assert compactness(data, members) == pytest.approx(expected, abs=1e-6)
+            checked += 1
+        assert checked >= 10, "too few multi-commune units sampled to prove anything"
+
+    def test_the_floor_reduces_ragged_units(self, data) -> None:
+        from pipeline.reference_model import compactness
+
+        loose, _ = run(data, Params(min_compactness=0.0))
+        tight, _ = run(data, Params(min_compactness=0.20))
+        ragged = lambda r: sum(  # noqa: E731
+            1 for members in r.members.values() if compactness(data, members) < 0.20
+        )
+        assert ragged(tight) < ragged(loose)
+
+    def test_off_by_default_changes_nothing(self, data, default_run) -> None:
+        # The floor is opt-in: with it at zero the map must be exactly what it was before
+        # the feature existed, or every existing figure in the documentation is stale.
+        result, _ = default_run
+        explicit, _ = run(data, Params(min_compactness=0.0))
+        assert result.region_of == explicit.region_of

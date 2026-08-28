@@ -547,10 +547,34 @@ nothing, so the seats the last pass judged from are the seats the map ends with.
 Together these take the spread between the largest and smallest unit inside a county from 19
 times to 10.6, and units still short of the target from 134 to 107.
 
-**Shape is not yet part of this.** The pass optimises for the trip to the town hall, which is
-what was asked for when the two conflict, and compactness is measured but not enforced: the
-median unit scores 0.24 on Polsby-Popper and 94 of them fall below 0.20. A compactness control
-is the next thing to build.
+**Shape is a control, off by default.** The rebalancing pass optimises for the trip to the
+town hall, which is what shape trades against: the commune that tidies an outline is often not
+the one nearest a seat, so the choice belongs to whoever is reading the map.
+
+The **minimum compactness** slider sets a floor on the Polsby-Popper ratio — four pi times
+area over perimeter squared, where 1.00 is a circle and a long ragged strip tends to zero. A
+claim, a merge or a move is refused when it would leave a unit both below the floor *and*
+worse than it is now. The second half matters: the median unit scores 0.24, so a floor that
+refused every change to a ragged unit would freeze exactly the ones that most need
+rearranging.
+
+| floor | units | below target | median shape | units under 0.20 | saving |
+|---|---|---|---|---|---|
+| off | 250 | 96 | 0.237 | 79 | 8.82 bn |
+| 0.20 | 258 | 97 | 0.251 | 39 | 8.73 bn |
+| 0.25 | 267 | 113 | 0.264 | 42 | 8.67 bn |
+| 0.30 | 282 | 121 | 0.258 | 59 | 8.57 bn |
+
+At 0.20 the number of visibly ragged units halves for eight more units and 0.09 bn RON. Past
+0.25 it starts working against itself: refusing merges leaves more small awkward units than it
+prevents.
+
+**The shape is computed without any geometry.** A unit's area is the sum of its members' areas
+and its outline the sum of their perimeters less twice every border that falls inside it, so
+two scalars per commune and one per border are enough — the browser never loads a polygon to
+score a shape. A test checks that arithmetic against the merged polygons on forty units and
+requires them to agree to six decimal places; it caught the first version walking the
+road-connected graph, which left the 156 road-less borders in the perimeter.
 
 ## Manual overrides
 

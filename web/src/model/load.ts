@@ -63,6 +63,10 @@ export function decode(raw: RawPayload): ModelData {
   const adminPersonnelRon = new Float32Array(raw.attributesBin, offset, n);
   offset += n * F32;
   const incomeRon = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const areaKm2 = new Float32Array(raw.attributesBin, offset, n);
+  offset += n * F32;
+  const perimeterKm = new Float32Array(raw.attributesBin, offset, n);
 
   // Intern county codes so the "same county" test in the inner loop is an integer
   // comparison rather than a string comparison.
@@ -90,9 +94,10 @@ export function decode(raw: RawPayload): ModelData {
   const edgeA = new Uint16Array(raw.adjacencyBin, 0, allEdges);
   const edgeB = new Uint16Array(raw.adjacencyBin, allEdges * U16, allEdges);
   const edgeRoad = new Float32Array(raw.adjacencyBin, allEdges * U16 * 2, allEdges);
+  const edgeShared = new Float32Array(raw.adjacencyBin, allEdges * U16 * 2 + allEdges * 4, allEdges);
   const edgeTraversable = new Uint8Array(
     raw.adjacencyBin,
-    allEdges * U16 * 2 + allEdges * 4,
+    allEdges * U16 * 2 + allEdges * 8,
     allEdges,
   );
 
@@ -150,12 +155,16 @@ export function decode(raw: RawPayload): ModelData {
   for (let i = 0; i < n; i += 1) touchStart[i + 1] = touchStart[i]! + touchDegree[i]!;
   const touchCursor = touchStart.slice(0, n);
   const touching = new Uint16Array(allEdges * 2);
+  const touchingSharedKm = new Float32Array(allEdges * 2);
   for (let e = 0; e < allEdges; e += 1) {
     const a = edgeA[e]!;
     const b = edgeB[e]!;
+    const shared = edgeShared[e]!;
     touching[touchCursor[a]!] = b;
+    touchingSharedKm[touchCursor[a]!] = shared;
     touchCursor[a] = touchCursor[a]! + 1;
     touching[touchCursor[b]!] = a;
+    touchingSharedKm[touchCursor[b]!] = shared;
     touchCursor[b] = touchCursor[b]! + 1;
   }
 
@@ -232,6 +241,9 @@ export function decode(raw: RawPayload): ModelData {
     neighbourRoadM,
     touching,
     touchStart,
+    touchingSharedKm,
+    areaKm2,
+    perimeterKm,
     neighbourStart,
     byRadius,
     absorbers: Uint16Array.from([...absorberSeen].sort((a, b) => a - b)),

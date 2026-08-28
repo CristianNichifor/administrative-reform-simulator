@@ -95,6 +95,11 @@ const SLIDERS: SliderSpec[] = [
     min: 0, max: 100000, step: 2500,
     format: (v, l, s) => (v === 0 ? s.pTargetOff : formatNumber(v, l)),
   },
+  {
+    key: 'minCompactness', labelKey: 'minCompactness', helpKey: 'minCompactnessHelp',
+    min: 0, max: 0.35, step: 0.05,
+    format: (v, _l, s) => (v === 0 ? s.pTargetOff : v.toFixed(2)),
+  },
 ];
 
 const isRadius = (key: keyof Params): boolean =>

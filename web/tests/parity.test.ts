@@ -35,6 +35,7 @@ interface FixtureCase {
     p_orphan: number;
     p_target: number;
     max_road_m: number;
+    min_compactness: number;
   };
   regions: number;
   seeds: number;
@@ -74,6 +75,7 @@ function toParams(p: FixtureCase['params']): Params {
     pOrphan: p.p_orphan,
     pTarget: p.p_target,
     maxRoadM: p.max_road_m,
+    minCompactness: p.min_compactness ?? 0,
   };
 }
 

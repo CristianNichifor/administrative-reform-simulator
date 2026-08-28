@@ -464,6 +464,10 @@ def main(argv: list[str] | None = None) -> int:
         {
             "a_siruta": edges["a_siruta"],
             "b_siruta": edges["b_siruta"],
+            # Length of the boundary the two share. A unit's outline is the sum of its
+            # members' perimeters less twice the borders that fall inside it, so this is
+            # what lets the model score a unit's shape without carrying any polygons.
+            "shared_border_m": edges.geometry.length,
             "has_road": edges["has_road"],
             "is_fallback": edges["is_fallback"],
             "is_water_route": edges["is_water_route"],

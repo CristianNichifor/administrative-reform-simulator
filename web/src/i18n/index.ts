@@ -41,6 +41,8 @@ export interface Strings {
   pTarget: string;
   pTargetHelp: string;
   pTargetOff: string;
+  minCompactness: string;
+  minCompactnessHelp: string;
   belowTarget: string;
   belowTargetHelp: string;
 
@@ -170,6 +172,9 @@ const ro: Strings = {
   pOrphanHelp:
     'Comunele neatinse de niciun centru se pot uni între ele până la acest prag. Regulă diferită de absorbție.',
   pOrphanOff: 'dezactivat',
+  minCompactness: 'Compactitate minimă',
+  minCompactnessHelp:
+    'Cât de adunată trebuie să fie forma unei unități, pe raportul Polsby-Popper: 1,00 este un cerc, iar o fâșie lungă și zdrențuită tinde spre zero. La 0 regula este oprită. Unitatea mediană are 0,24, iar la 0,20 numărul celor sub acest prag se înjumătățește, cu prețul câtorva unități în plus. Forma este singurul obiectiv care intră direct în conflict cu drumul până la primărie.',
   maxRoad: 'Distanță maximă pe drum',
   maxRoadHelp: 'Cât de departe poate fi o comună de centrul ei, pe drum. Împiedică unități late cât județul.',
   pTarget: 'Populație minimă rezultată',
@@ -312,6 +317,9 @@ const en: Strings = {
   pOrphanHelp:
     'Communes no centre reached may pair up with each other to this size. A different rule from absorption.',
   pOrphanOff: 'off',
+  minCompactness: 'Minimum compactness',
+  minCompactnessHelp:
+    "How gathered a unit's shape must be, on the Polsby-Popper ratio: 1.00 is a circle and a long ragged strip tends to zero. At 0 the rule is off. The median unit scores 0.24, and at 0.20 the number below that halves, at the cost of a few more units. Shape is the one goal that trades directly against the trip to the town hall.",
   maxRoad: 'Maximum road distance',
   maxRoadHelp: 'How far a commune may be from its centre, by road. Stops units as wide as the county.',
   pTarget: 'Minimum resulting population',

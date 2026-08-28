@@ -80,6 +80,17 @@ P_TARGET_RANGE: Final = (0, 100_000)
 # and 303 of 420 units finish short, because a compact unit in a sparse county simply cannot
 # find 50,000 people. At 50 km no unit breaches the cap and 143 fall short. Both are sliders;
 # this is the point where they stop fighting.
+# Minimum shape score a unit may end with, on the Polsby-Popper ratio: 4*pi*area over
+# perimeter squared, where 1.0 is a circle and a long ragged strip tends to zero.
+#
+# Off by default. Shape is the one goal that trades directly against the trip to the town
+# hall — the commune that tidies an outline is often not the one nearest a seat — and the
+# choice between them belongs to whoever is reading the map, not to this file. At 0 nothing
+# is refused. The median unit scores 0.24 and a fifth fall below 0.20, so 0.15 tidies the
+# worst edges and 0.25 reshapes most of the country.
+MIN_COMPACTNESS_DEFAULT: Final = 0.0
+MIN_COMPACTNESS_RANGE: Final = (0.0, 0.35)
+
 MAX_ROAD_DEFAULT_M: Final = 50_000
 MAX_ROAD_RANGE_M: Final = (10_000, 80_000)
 

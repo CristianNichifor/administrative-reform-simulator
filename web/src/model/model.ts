@@ -31,6 +31,50 @@ import {
 
 const NO_REGION = 0xffff;
 
+/**
+ * Polsby-Popper for a unit, from its members' scalars alone: 1.0 is a circle.
+ *
+ * A unit's area is the sum of its members' areas and its outline the sum of their perimeters
+ * less twice every border that falls inside it, so no polygon is needed. Every shared border
+ * counts, not only those a road crosses — a border with no road over it is still a border
+ * when measuring an outline, and walking the road graph here left 156 of them in the
+ * perimeter and put every score slightly wrong.
+ */
+export function compactness(data: ModelData, members: number[]): number {
+  const inside = new Set(members);
+  let area = 0;
+  let perimeter = 0;
+  let internal = 0;
+  for (const member of members) {
+    area += data.areaKm2[member]!;
+    perimeter += data.perimeterKm[member]!;
+    for (let e = data.touchStart[member]!; e < data.touchStart[member + 1]!; e += 1) {
+      if (inside.has(data.touching[e]!)) internal += data.touchingSharedKm[e]!;
+    }
+  }
+  // Each internal border was counted from both sides, hence half of twice it.
+  const outline = perimeter - internal;
+  return outline > 0 ? (4 * Math.PI * area) / (outline * outline) : 1;
+}
+
+/**
+ * Whether a change may go ahead under the compactness floor.
+ *
+ * Refused only when the result is both below the floor *and* worse than what is there now.
+ * Plenty of units are already ragged — the median scores 0.24 — and a floor that refused
+ * every change to them would freeze exactly the units that most need rearranging.
+ */
+function shapeAllows(
+  data: ModelData,
+  params: Params,
+  before: number[],
+  after: number[],
+): boolean {
+  if (params.minCompactness <= 0) return true;
+  const then = compactness(data, after);
+  return then >= params.minCompactness || then >= compactness(data, before);
+}
+
 /** Lexicographic compare over equal-length numeric tuples. */
 function lessThan(a: number[], b: number[]): boolean {
   for (let i = 0; i < a.length; i += 1) {
@@ -674,15 +718,12 @@ function grow(
       }
       if (row.size === 0) continue;
 
-      let absorber = -1;
-      let bestKey: number[] | null = null;
-      for (const bidder of [...row.keys()].sort((a, b) => a - b)) {
-        const key = keyOf(bidder, uat, row);
-        if (bestKey === null || lessThan(key, bestKey)) {
-          bestKey = key;
-          absorber = bidder;
-        }
-      }
+      const ranked = [...row.keys()].sort((a, b) => a - b);
+      ranked.sort((a, b) => (lessThan(keyOf(a, uat, row), keyOf(b, uat, row)) ? -1 : 1));
+      const absorber = ranked.find((b) =>
+        shapeAllows(data, params, members.get(b) ?? [], [...(members.get(b) ?? []), uat]),
+      );
+      if (absorber === undefined) continue;
 
       regionOf[uat] = absorber;
       members.set(absorber, [...(members.get(absorber) ?? []), uat]);
@@ -974,7 +1015,16 @@ function consolidateToTarget(
           return everyone.every((m) => (reach.get(m) ?? Infinity) <= params.maxRoadM);
         };
 
-        const reachable = [...partners].filter(compact);
+        const reachable = [...partners].filter(
+          (other) =>
+            compact(other) &&
+            shapeAllows(
+              data,
+              params,
+              members.get(region)!,
+              [...members.get(region)!, ...members.get(other)!],
+            ),
+        );
         if (reachable.length === 0) continue;
 
         // A county capital is finished once it has taken its ring.
@@ -1363,6 +1413,11 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
         for (const m of current) before += data.population[m]!;
         const after = before - data.population[siruta]!;
         if (before >= params.pTarget && after < params.pTarget) continue;
+      }
+
+      if (!shapeAllows(data, params, current, remaining)) continue;
+      if (!shapeAllows(data, params, members.get(target)!, [...members.get(target)!, siruta])) {
+        continue;
       }
 
       members.set(here, remaining);

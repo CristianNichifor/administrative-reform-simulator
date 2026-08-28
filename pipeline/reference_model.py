@@ -33,6 +33,7 @@ import heapq
 import math
 import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import geopandas as gpd
@@ -44,8 +45,10 @@ from pipeline.constants import (
     ADMIN_RANK_ORAS,
     BUCHAREST_COUNTY_CODE,
     BUCHAREST_RING_COUNTY,
+    CRS_STEREO70,
     DELTA_WATER_UATS,
     MAX_ROAD_DEFAULT_M,
+    MIN_COMPACTNESS_DEFAULT,
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
@@ -80,6 +83,7 @@ class Params:
     p_orphan: int = P_ORPHAN_DEFAULT
     p_target: int = P_TARGET_DEFAULT
     max_road_m: int = MAX_ROAD_DEFAULT_M
+    min_compactness: float = MIN_COMPACTNESS_DEFAULT
 
     def snapped(self) -> Params:
         """Radii must land on the precomputed grid; the UI slider snaps to it too."""
@@ -94,6 +98,7 @@ class Params:
             p_orphan=self.p_orphan,
             p_target=self.p_target,
             max_road_m=self.max_road_m,
+            min_compactness=self.min_compactness,
         )
 
 
@@ -117,6 +122,14 @@ class Data:
     neighbours: dict[str, tuple[str, ...]]
     # Road distance in metres between the seats of two adjacent UATs, both directions.
     road_distance: dict[tuple[str, str], float]
+    # Shape, per commune and per shared border, in km2 and km. A unit's area is the sum of
+    # its members' and its perimeter the sum less twice the borders inside it.
+    # Every shared border, including those no road crosses — the model may not grow over
+    # them, but they are still borders when measuring a unit's outline.
+    touching: dict[str, tuple[str, ...]]
+    area_km2: dict[str, float]
+    perimeter_km: dict[str, float]
+    shared_border_km: dict[tuple[str, str], float]
     # (radius, absorber) -> ((uat, overlap_fraction, seat_inside), ...) sorted for determinism
     candidacy: dict[tuple[int, str], tuple[tuple[str, float, bool], ...]]
     absorbers: tuple[str, ...]
@@ -192,6 +205,20 @@ def load_data() -> Data:
     # way round carries a large weight, so growth avoids it and the distance cap bounds it. A
     # river with no bridge and a motorway with no junction are both long detours, which is
     # what they are — the protection those cases need is the distance, not a yes/no test.
+    geometry = gpd.read_file(PROCESSED_DIR / "uat_geometry.gpkg", layer="uat").to_crs(CRS_STEREO70)
+    area_km2 = dict(zip(geometry["siruta"], geometry.geometry.area / 1_000_000, strict=True))
+    perimeter_km = dict(zip(geometry["siruta"], geometry.geometry.length / 1_000, strict=True))
+    touching_sets: dict[str, set[str]] = defaultdict(set)
+    shared_border_km: dict[tuple[str, str], float] = {}
+    for a, b, metres in zip(
+        adjacency["a_siruta"], adjacency["b_siruta"], adjacency["shared_border_m"], strict=True
+    ):
+        shared_border_km[(a, b)] = float(metres) / 1_000
+        shared_border_km[(b, a)] = float(metres) / 1_000
+        touching_sets[a].add(b)
+        touching_sets[b].add(a)
+    touching = {k: tuple(sorted(v)) for k, v in touching_sets.items()}
+
     routed_pairs = {
         (a, b)
         for a, b, metres in zip(road["a_siruta"], road["b_siruta"], road["road_m"], strict=True)
@@ -248,6 +275,10 @@ def load_data() -> Data:
         administrative_ron=administrative,
         neighbours=neighbours,
         road_distance=road_distance,
+        touching=touching,
+        area_km2=area_km2,
+        perimeter_km=perimeter_km,
+        shared_border_km=shared_border_km,
         candidacy=candidacy_map,
         absorbers=absorbers,
         by_county={k: tuple(v) for k, v in by_county.items()},
@@ -713,6 +744,55 @@ _REBALANCE_SWEEPS = 8
 _SETTLE_ROUNDS = 6
 
 
+def _shape_of(data: Data, members: Iterable[str]) -> tuple[float, float]:
+    """Area and perimeter of a unit, from its members' scalars alone.
+
+    A unit's area is the sum of its members' areas, and its outline is the sum of their
+    perimeters less twice every border that falls inside it. Checked against the merged
+    polygons on a sample of twelve units: identical to four decimal places. This is what
+    lets the browser score a shape without carrying any geometry.
+    """
+    group = list(members)
+    inside = set(group)
+    area = 0.0
+    perimeter = 0.0
+    internal = 0.0
+    for member in group:
+        area += data.area_km2.get(member, 0.0)
+        perimeter += data.perimeter_km.get(member, 0.0)
+        # Every shared border, not only the ones a road crosses: a border with no road over
+        # it is still a border when measuring an outline. Walking `neighbours` here left the
+        # 156 road-less borders in the perimeter and put every score slightly wrong.
+        for neighbour in data.touching.get(member, ()):
+            if neighbour in inside:
+                internal += data.shared_border_km.get((member, neighbour), 0.0)
+    # Each internal border was counted from both sides, hence half of twice it.
+    return area, perimeter - internal
+
+
+def compactness(data: Data, members: Iterable[str]) -> float:
+    """Polsby-Popper: 1.0 is a circle, a long ragged strip tends to zero."""
+    area, perimeter = _shape_of(data, members)
+    if perimeter <= 0:
+        return 1.0
+    return 4 * math.pi * area / (perimeter * perimeter)
+
+
+def _shape_allows(data: Data, params: Params, before: list[str], after: list[str]) -> bool:
+    """Whether a change may go ahead under the compactness floor.
+
+    Refused only when the result is both below the floor *and* worse than what is there
+    now. A unit that is already ragged — and plenty are, the median scores 0.24 — must still
+    be able to take a commune, or the floor would freeze exactly the units that most need
+    rearranging.
+    """
+    if params.min_compactness <= 0:
+        return True
+    now = compactness(data, before)
+    then = compactness(data, after)
+    return then >= params.min_compactness or then >= now
+
+
 def _grow(
     data: Data,
     params: Params,
@@ -838,7 +918,17 @@ def _grow(
             }
             if not row:
                 continue
-            absorber = min(row, key=lambda b, u=uat, rw=row: key(b, u, rw))
+            ranked = sorted(row, key=lambda b, u=uat, rw=row: key(b, u, rw))
+            absorber = next(
+                (
+                    b
+                    for b in ranked
+                    if _shape_allows(data, params, result.members[b], result.members[b] + [uat])
+                ),
+                None,
+            )
+            if absorber is None:
+                continue
             result.region_of[uat] = absorber
             result.members.setdefault(absorber, []).append(uat)
             distance_to[(absorber, uat)] = row[absorber]
@@ -1117,7 +1207,17 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
                 everyone = result.members[this] + result.members[other]
                 return all(reach.get(m, math.inf) <= params.max_road_m for m in everyone)
 
-            reachable = [o for o in sorted(partners) if merge_is_compact(o)]
+            reachable = [
+                o
+                for o in sorted(partners)
+                if merge_is_compact(o)
+                and _shape_allows(
+                    data,
+                    params,
+                    result.members[absorber],
+                    result.members[absorber] + result.members[o],
+                )
+            ]
             if not reachable:
                 continue
 
@@ -1337,6 +1437,13 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
                 after = before - data.population[siruta]
                 if before >= params.p_target > after:
                     continue
+
+            if not _shape_allows(data, params, members, remaining):
+                continue
+            if not _shape_allows(
+                data, params, result.members[target_unit], result.members[target_unit] + [siruta]
+            ):
+                continue
 
             result.members[here] = remaining
             result.members[target_unit].append(siruta)

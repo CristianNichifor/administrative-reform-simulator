@@ -42,6 +42,10 @@ CASES: tuple[Params, ...] = (
     Params(r_cap_m=30_000, r_town_m=5_000),
     Params(r_cap_m=10_000, r_town_m=20_000),  # town reach exceeding capital reach
     # Minimum seeds per county — drives the greedy promotion loop and its relaxation.
+    # The compactness floor, which changes growth, merging and rebalancing at once and would
+    # otherwise be the only rule in the model with no parity case behind it.
+    Params(min_compactness=0.20),
+    Params(min_compactness=0.30),
     Params(n_min=1),
     Params(n_min=10),
     Params(n_min=10, r_sep_m=30_000),  # forces R_sep relaxation

@@ -10,7 +10,9 @@ Layout, all little-endian:
     manifest.json       shapes and offsets; the only thing that needs parsing
     attributes.json     siruta, name, county per UAT — for the UI, not the hot path
     attributes.bin      population u32 | seatX f32 | seatY f32 | admin f32 | operating f32
-    adjacency.bin       a u16 | b u16 | roadM f32 | traversable u8
+                        | development | personnel | adminPersonnel | income
+                        | areaKm2 f32 | perimeterKm f32
+    adjacency.bin       a u16 | b u16 | roadM f32 | sharedKm f32 | traversable u8
     candidacy.bin       absorber u16 | uat u16 | overlap u8 (percent) | seatInside u8
 
 UATs are addressed by **index**, not by SIRUTA string, everywhere in the binary payload.
@@ -119,6 +121,16 @@ def main(argv: list[str] | None = None) -> int:
     personnel = finance["personnel_ron"].to_numpy(dtype=np.float32)
     admin_personnel = finance["admin_personnel_ron"].to_numpy(dtype=np.float32)
     income = finance["income_ron"].to_numpy(dtype=np.float32)
+    # Shape, as two scalars per commune. A unit's outline is the sum of its members'
+    # perimeters less twice the borders that fall inside it, and its area is just the sum, so
+    # these plus the per-edge shared border let the browser score a unit's compactness
+    # exactly without carrying a single polygon. Checked against the merged geometry on a
+    # sample of twelve units: identical to four decimal places.
+    #
+    # Square kilometres and kilometres rather than metres: float32 loses precision on areas
+    # of 10^9 square metres, and the ratio only ever needs three significant figures.
+    area_km2 = (uats.geometry.area / 1_000_000).to_numpy(dtype=np.float32)
+    perimeter_km = (uats.geometry.length / 1_000).to_numpy(dtype=np.float32)
 
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (WEB_DATA_DIR / "attributes.bin").write_bytes(
@@ -131,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         + personnel.tobytes()
         + admin_personnel.tobytes()
         + income.tobytes()
+        + area_km2.tobytes()
+        + perimeter_km.tobytes()
     )
 
     (WEB_DATA_DIR / "attributes.json").write_text(
@@ -427,8 +441,14 @@ def main(argv: list[str] | None = None) -> int:
         dtype=np.float32,
     )
     traversable = ordered["traversable"].to_numpy().astype(np.uint8)
+    # Kilometres, for the same float32 reason as the areas above.
+    shared_km = (ordered["shared_border_m"].to_numpy() / 1_000).astype(np.float32)
     (WEB_DATA_DIR / "adjacency.bin").write_bytes(
-        a_idx.tobytes() + b_idx.tobytes() + road_m.tobytes() + traversable.tobytes()
+        a_idx.tobytes()
+        + b_idx.tobytes()
+        + road_m.tobytes()
+        + shared_km.tobytes()
+        + traversable.tobytes()
     )
     usable = adjacency[adjacency["traversable"]]
 

@@ -46,6 +46,8 @@ export interface Params {
   pTarget: number;
   /** How far a commune may be from its centre by road. Zero disables the cap. */
   maxRoadM: number;
+  /** Polsby-Popper floor for a unit's shape; 0 switches the rule off. */
+  minCompactness: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -59,6 +61,7 @@ export const DEFAULT_PARAMS: Params = {
   pOrphan: 5_000,
   pTarget: 50_000,
   maxRoadM: 50_000,
+  minCompactness: 0,
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */
@@ -147,6 +150,11 @@ export interface ModelData {
    */
   touching: Uint16Array;
   touchStart: Uint32Array;
+  /** Shared border length in km, aligned with `touching`. */
+  touchingSharedKm: Float32Array;
+  /** Per-commune shape, in square kilometres and kilometres. */
+  areaKm2: Float32Array;
+  perimeterKm: Float32Array;
   /** Radius (metres) to its candidacy slice. */
   byRadius: Map<number, RadiusSlice>;
   /** Indices that appear as an absorber at any radius, ascending. */
