@@ -800,6 +800,19 @@ function absorbLeftovers(
       }
       if (options.size === 0) continue;
 
+      // The shape floor applies here too, or it does nothing at all. Growth refuses a claim
+      // that would wreck an outline and this step used to hand the commune straight back a
+      // moment later. Options that keep the shape are preferred; if none does, the commune
+      // still has to go somewhere — stranded is worse than ragged.
+      if (params.minCompactness > 0) {
+        const tidy = [...options.keys()].filter((u) =>
+          shapeAllows(data, params, members.get(u)!, [...members.get(u)!, siruta]),
+        );
+        if (tidy.length > 0) {
+          for (const u of [...options.keys()]) if (!tidy.includes(u)) options.delete(u);
+        }
+      }
+
       const short = [...options.keys()].filter((u) => populationOf(u) < params.pTarget);
       let winner = -1;
       if (short.length > 0) {

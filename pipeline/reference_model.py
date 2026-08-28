@@ -1027,6 +1027,20 @@ def _leftover_pass(
                 if not options:
                     continue
 
+            # The shape floor applies here too, or it does nothing at all.
+            #
+            # Growth refuses a claim that would wreck an outline, and this step used to hand
+            # the commune straight back a moment later — which is why turning the slider up
+            # left Dragalina's horseshoe around Calarasi at 0.17 whatever it was set to.
+            # Options that keep the shape are preferred; if none does, the commune still has
+            # to go somewhere, and a commune left stranded is worse than a ragged edge.
+            tidy = {
+                u: dd
+                for u, dd in options.items()
+                if _shape_allows(data, params, result.members[u], result.members[u] + [siruta])
+            }
+            options = tidy or options
+
             short = {u: dd for u, dd in options.items() if unit_population(u) < params.p_target}
             if short:
                 # Among units that still need people, the nearest by road.
