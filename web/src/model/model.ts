@@ -623,67 +623,147 @@ function grow(
 
     if (bids.size === 0) return;
 
-    // A contested commune goes to a centre that still needs it: one that would pass the
-    // target by taking it concedes to one that would not. Then nearest by road, then tier,
-    // then the larger centre.
-    const won = new Map<number, number>();
-    for (const uat of [...bids.keys()].sort((a, b) => a - b)) {
-      const row = bids.get(uat)!;
-      const keyOf = (bidder: number): number[] => {
-        // A capital wins any contest for a commune on its own border, outright. This is the
-        // rule and nothing overrides it: a resedinta de judet absorbs the ring around it.
-        // Left to road distance the capital lost its own neighbours to whichever centre sat
-        // closer to them, and thirteen capitals were missing part of their ring.
-        // Resedinte de judet only. `isCapital` is also true for the six Bucharest sectors,
-        // and giving the national capital outright priority over its Ilfov ring is a
-        // different rule from the one being implemented — the city already has its radius.
-        let ownRing = 0;
-        if (data.attributes.isCapital[bidder] && data.countyOf[bidder] !== data.bucharestCounty) {
-          for (let e = data.neighbourStart[bidder]!; e < data.neighbourStart[bidder + 1]!; e += 1) {
-            if (data.neighbours[e] === uat) { ownRing = 1; break; }
-          }
-        }
-        const overshoot =
-          isCapped(bidder) &&
-          params.pTarget > 0 &&
-          gathered.get(bidder)! + data.population[uat]! > params.pTarget;
-        return [
-          ownRing ? 0 : 1,
-          overshoot ? 1 : 0,
-          row.get(bidder)!,
-          tierOf[bidder]!,
-          -data.population[bidder]!,
-          bidder,
-        ];
-      };
-      let best = -1;
-      let bestKey: number[] | null = null;
-      for (const bidder of [...row.keys()].sort((a, b) => a - b)) {
-        const key = keyOf(bidder);
-        if (bestKey === null || lessThan(key, bestKey)) {
-          bestKey = key;
-          best = bidder;
+    // Settle the ring nearest pair first, with running totals.
+    //
+    // Bids are collected across the whole county before any is settled, but they are
+    // *awarded* one at a time in ascending distance, and each award updates the winner's
+    // population immediately. Awarding a whole ring at once let one centre take five
+    // communes in a round and land 37,000 over the target while the centre beside it stayed
+    // at 20,000: no single commune overshot, so the concession rule never fired. With
+    // running totals a centre stops the moment it reaches the target and the rest of its
+    // ring falls to neighbours that still need it.
+    const keyOf = (bidder: number, uat: number, row: Map<number, number>): number[] => {
+      // Resedinte de judet only: a capital wins any contest on its own border outright.
+      // `isCapital` is also true for the Bucharest sectors, and the national capital
+      // already has its radius.
+      let ownRing = 0;
+      if (data.attributes.isCapital[bidder] && data.countyOf[bidder] !== data.bucharestCounty) {
+        for (let e = data.neighbourStart[bidder]!; e < data.neighbourStart[bidder + 1]!; e += 1) {
+          if (data.neighbours[e] === uat) { ownRing = 1; break; }
         }
       }
-      won.set(uat, best);
-    }
+      const overshoot =
+        isCapped(bidder) &&
+        params.pTarget > 0 &&
+        gathered.get(bidder)! + data.population[uat]! > params.pTarget;
+      return [
+        ownRing ? 0 : 1,
+        overshoot ? 1 : 0,
+        row.get(bidder)!,
+        tierOf[bidder]!,
+        -data.population[bidder]!,
+        bidder,
+      ];
+    };
 
-    for (const uat of [...won.keys()].sort((a, b) => a - b)) {
-      const absorber = won.get(uat)!;
+    const order = [...bids.keys()].sort((a, b) => {
+      const da = Math.min(...bids.get(a)!.values());
+      const db = Math.min(...bids.get(b)!.values());
+      return da !== db ? da - db : a - b;
+    });
+
+    let awarded = 0;
+    for (const uat of order) {
+      const row = new Map<number, number>();
+      for (const [bidder, reach] of bids.get(uat)!) {
+        if (isCapped(bidder) && params.pTarget > 0 && gathered.get(bidder)! >= params.pTarget) {
+          continue;
+        }
+        row.set(bidder, reach);
+      }
+      if (row.size === 0) continue;
+
+      let absorber = -1;
+      let bestKey: number[] | null = null;
+      for (const bidder of [...row.keys()].sort((a, b) => a - b)) {
+        const key = keyOf(bidder, uat, row);
+        if (bestKey === null || lessThan(key, bestKey)) {
+          bestKey = key;
+          absorber = bidder;
+        }
+      }
+
       regionOf[uat] = absorber;
       members.set(absorber, [...(members.get(absorber) ?? []), uat]);
-      reached.get(absorber)!.set(uat, bids.get(uat)!.get(absorber)!);
-      const admitted = eligible.get(absorber)!;
-      const pct = admitted.get(uat) ?? 0;
+      reached.get(absorber)!.set(uat, row.get(absorber)!);
+      gathered.set(absorber, gathered.get(absorber)! + data.population[uat]!);
+      const pct = eligible.get(absorber)!.get(uat) ?? 0;
       overlapOf[uat] = pct;
       reasonOf[uat] =
         pct >= Math.round(params.minOverlap * 100) ? REASON.ABSORBED_OVERLAP : REASON.ABSORBED_SEAT;
+      awarded += 1;
     }
-    // Populations move only between rounds, so every bid in a ring was judged against the
-    // same state.
-    for (const [uat, absorber] of won) {
-      gathered.set(absorber, gathered.get(absorber)! + data.population[uat]!);
+
+    if (awarded === 0) return;
+  }
+}
+
+/**
+ * Hand every commune no centre reached to a neighbouring unit.
+ *
+ * Leftovers are an artefact of the target, not of geography. A centre stops once it has
+ * enough people, and when every centre around a commune is satisfied nobody is allowed to
+ * take it — 300 communes were stranded that way, none of them far from anywhere. Clustering
+ * them together afterwards produced units nobody asked for.
+ *
+ * A leftover goes to the neighbouring unit still short of the target, nearest by road. If
+ * every neighbour is satisfied it goes to the smallest of them rather than the nearest:
+ * handing each to the nearest piled them onto whichever unit was adjacent to the most
+ * leftovers and took the worst county from a 219-fold spread to 548. The cap still applies.
+ *
+ * Repeated until nothing more can be placed, because placing one commune gives its
+ * neighbours a unit to join.
+ */
+function absorbLeftovers(
+  data: ModelData,
+  params: Params,
+  regionOf: Uint16Array,
+  members: Map<number, number[]>,
+  reasonOf: Uint8Array,
+): void {
+  const populationOf = (seat: number): number => {
+    let total = 0;
+    for (const m of members.get(seat) ?? []) total += data.population[m]!;
+    return total;
+  };
+
+  for (;;) {
+    let moved = 0;
+    for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
+      if (regionOf[siruta] !== NO_REGION) continue;
+      const options = new Map<number, number>();
+      for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
+        const unit = regionOf[data.neighbours[e]!]!;
+        if (unit === NO_REGION || !mayAbsorb(data, unit, siruta)) continue;
+        const distance =
+          countyRoadDistances(data, data.countyOf[unit]!, [unit]).get(siruta) ?? Infinity;
+        if (params.maxRoadM > 0 && distance > params.maxRoadM) continue;
+        if (distance < (options.get(unit) ?? Infinity)) options.set(unit, distance);
+      }
+      if (options.size === 0) continue;
+
+      const short = [...options.keys()].filter((u) => populationOf(u) < params.pTarget);
+      let winner = -1;
+      if (short.length > 0) {
+        let best: [number, number] | null = null;
+        for (const u of short.sort((a, b) => a - b)) {
+          const key: [number, number] = [options.get(u)!, u];
+          if (best === null || lessThan(key, best)) { best = key; winner = u; }
+        }
+      } else {
+        let best: [number, number, number] | null = null;
+        for (const u of [...options.keys()].sort((a, b) => a - b)) {
+          const key: [number, number, number] = [populationOf(u), options.get(u)!, u];
+          if (best === null || lessThan(key, best)) { best = key; winner = u; }
+        }
+      }
+
+      regionOf[siruta] = winner;
+      members.get(winner)!.push(siruta);
+      reasonOf[siruta] = REASON.ABSORBED_SEAT;
+      moved += 1;
     }
+    if (moved === 0) return;
   }
 }
 
@@ -1304,6 +1384,10 @@ export function runModel(data: ModelData, params: Params, pins: Pin[] = []): Mod
 
   const members = new Map<number, number[]>();
   accrete(data, params, tierOf, regionOf, reasonOf, overlapOf, members, held, reservedFor);
+
+  // Before the cluster step: a commune nobody reached should join a neighbouring unit, not
+  // start a unit of its own with the other communes nobody reached.
+  absorbLeftovers(data, params, regionOf, members, reasonOf);
 
   const orphanSeats = new Set<number>();
   orphanTier(data, params, regionOf, orphanSeats, reasonOf);

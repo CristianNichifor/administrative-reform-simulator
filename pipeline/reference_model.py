@@ -790,43 +790,123 @@ def _grow(
         if not bids:
             return
 
-        def settle(uat: str, row: dict[str, float]) -> str:
-            def key(bidder: str, uat: str = uat, row: dict[str, float] = row) -> tuple:
-                # A capital wins any contest for a commune on its own border, outright.
-                #
-                # This is the rule, and nothing else may override it: a resedinta de judet
-                # absorbs the ring around it. Left to road distance the capital lost its own
-                # neighbours to whichever centre happened to sit closer to them — thirteen
-                # capitals were missing part of their ring for exactly this reason.
-                own_ring = bidder in COUNTY_CAPITAL_SIRUTA and uat in data.neighbours.get(
-                    bidder, ()
-                )
-                overshoot = (
+        # Settle the ring nearest pair first, with running totals.
+        #
+        # The bids are collected across the whole county before any of them is settled, but
+        # they are *awarded* one at a time in ascending distance, and each award updates the
+        # winner's population immediately. Awarding a whole ring at once let one centre take
+        # five communes in a single round and land 37,000 over the target while the centre
+        # beside it stayed at 20,000: no single commune overshot, so the concession rule
+        # never fired, and the imbalance was decided by who happened to be nearest to more
+        # of them. With running totals a centre stops the moment it reaches the target and
+        # the rest of its ring falls to neighbours that still need it.
+        def key(bidder: str, uat: str, row: dict[str, float]) -> tuple:
+            # A capital wins any contest for a commune on its own border, outright: a
+            # resedinta de judet absorbs the ring around it and nothing overrides that.
+            own_ring = bidder in COUNTY_CAPITAL_SIRUTA and uat in data.neighbours.get(bidder, ())
+            overshoot = (
+                is_capped(bidder)
+                and params.p_target > 0
+                and gathered[bidder] + data.population[uat] > params.p_target
+            )
+            return (
+                0 if own_ring else 1,
+                1 if overshoot else 0,
+                row[bidder],
+                result.seeds[bidder],
+                -data.population[bidder],
+                bidder,
+            )
+
+        order = sorted(bids, key=lambda u: (min(bids[u].values()), u))
+        awarded = 0
+        for uat in order:
+            row = {
+                bidder: reach
+                for bidder, reach in bids[uat].items()
+                if not (
                     is_capped(bidder)
                     and params.p_target > 0
-                    and gathered[bidder] + data.population[uat] > params.p_target
+                    and gathered[bidder] >= params.p_target
                 )
-                return (
-                    0 if own_ring else 1,
-                    1 if overshoot else 0,
-                    row[bidder],
-                    result.seeds[bidder],
-                    -data.population[bidder],
-                    bidder,
-                )
-
-            return min(row, key=key)
-
-        won = {uat: settle(uat, row) for uat, row in sorted(bids.items())}
-        for uat in sorted(won):
-            absorber = won[uat]
+            }
+            if not row:
+                continue
+            absorber = min(row, key=lambda b, u=uat, rw=row: key(b, u, rw))
             result.region_of[uat] = absorber
             result.members.setdefault(absorber, []).append(uat)
-            distance_to[(absorber, uat)] = bids[uat][absorber]
-        # Populations move only between rounds, so every bid in a ring was judged against
-        # the same state.
-        for uat, absorber in won.items():
+            distance_to[(absorber, uat)] = row[absorber]
             gathered[absorber] += data.population[uat]
+            awarded += 1
+
+        if awarded == 0:
+            return
+
+
+def absorb_leftovers(data: Data, params: Params, result: Result) -> int:
+    """Hand every commune no centre reached to a neighbouring unit.
+
+    Leftovers are an artefact of the target, not of geography. A centre stops when it has
+    gathered enough people, and once every centre around a commune is satisfied nobody is
+    allowed to take it — 300 communes ended up stranded that way, none of them far from
+    anywhere. Clustering them together afterwards produced units nobody had asked for.
+
+    So they are handed out instead. A leftover goes to the neighbouring unit that is **still
+    short of the target**, nearest by road; if every neighbour is satisfied it goes to the
+    nearest of those instead, because a commune attached to a large unit is a better answer
+    than a commune left on its own. The distance cap still applies: a commune further from
+    every neighbouring seat than anyone should travel is left for the cluster step.
+
+    Repeated until nothing more can be placed, because placing one commune gives its
+    neighbours a unit to join.
+    """
+    placed = 0
+    reach_cache: dict[str, dict[str, float]] = {}
+
+    def reach_from(seat: str) -> dict[str, float]:
+        cached = reach_cache.get(seat)
+        if cached is None:
+            cached = _county_road_distances(data, data.county[seat], [seat])
+            reach_cache[seat] = cached
+        return cached
+
+    def unit_population(seat: str) -> int:
+        return sum(data.population[m] for m in result.members[seat])
+
+    while True:
+        moved = 0
+        for siruta in sorted(data.population):
+            if siruta in result.region_of:
+                continue
+            options: dict[str, float] = {}
+            for neighbour in data.neighbours.get(siruta, ()):
+                unit = result.region_of.get(neighbour)
+                if unit is None or not _may_absorb(data, unit, siruta):
+                    continue
+                distance = reach_from(unit).get(siruta, math.inf)
+                if params.max_road_m > 0 and distance > params.max_road_m:
+                    continue
+                if distance < options.get(unit, math.inf):
+                    options[unit] = distance
+            if not options:
+                continue
+            short = {u: dd for u, dd in options.items() if unit_population(u) < params.p_target}
+            if short:
+                # Among units that still need people, the nearest by road.
+                winner = min(short, key=lambda u, sh=short: (sh[u], u))
+            else:
+                # Every neighbour is satisfied, so this commune has to go somewhere it was
+                # not needed. It goes to the *smallest* of them, not the nearest: handing
+                # each one to the nearest piled them onto whichever unit happened to be
+                # adjacent to the most leftovers, and took the worst county from a 219-fold
+                # spread between its largest and smallest unit to 548. Distance breaks ties.
+                winner = min(options, key=lambda u, op=options: (unit_population(u), op[u], u))
+            result.region_of[siruta] = winner
+            result.members[winner].append(siruta)
+            moved += 1
+        placed += moved
+        if moved == 0:
+            return placed
 
 
 def _keep_unclaimed_as_themselves(data: Data, result: Result) -> None:
@@ -1361,6 +1441,9 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
     result = Result()
     select_seeds(data, params, result)
     accrete(data, params, result)
+    # Before the cluster step: a commune nobody reached should join a neighbouring unit, not
+    # start a unit of its own with the other communes nobody reached.
+    absorb_leftovers(data, params, result)
     orphan_tier(data, params, result)
     # Belt and braces: whatever route the UAT took, it ends up in exactly one region.
     _keep_unclaimed_as_themselves(data, result)

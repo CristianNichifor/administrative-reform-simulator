@@ -125,7 +125,17 @@ it. 39 of 41 capitals hold their complete ring; the two exceptions, Ocna Sugatag
 from Baia Mare and Buchin at 50.3 km from Resita, border their capital across a mountain and
 fall outside the road cap.
 
-*A ring is settled as one round, not claim by claim.* Every centre bids for every unclaimed
+*A ring is settled nearest pair first, with running totals.* The bids are collected across
+the whole county before any is settled, but they are awarded one at a time in ascending road
+distance, and each award updates that centre's population immediately. Awarding a whole ring
+at once let one centre take five communes in a round and land 37,000 over the target while the
+centre beside it stayed at 20,000 — no single commune overshot, so the concession rule never
+fired, and the imbalance was decided by who happened to be nearest to more of them. With
+running totals a centre stops the moment it reaches the target and the rest of its ring falls
+to neighbours that still need it. Median overshoot fell from 5,728 to 1,487 and the largest
+unit produced by growth from 87,075 to 56,505.
+
+*Bids are still collected across the county at once.* Every centre bids for every unclaimed
 commune it borders, all the bids are collected, and the whole ring is decided together.
 Populations change only between rounds, so no centre gains an advantage from being processed
 earlier in the alphabet.
@@ -489,6 +499,24 @@ county rule, so a cluster is marked by its badge in the panel instead.
 **Hovering or selecting a commune outlines its county.** The county boundary is the hardest
 constraint in the model, so knowing which county you are looking at explains more of the
 shape on screen than any other single line.
+
+## No leftovers
+
+A commune no centre reached used to start a unit of its own with the other communes nobody
+reached. That was an artefact of the target rather than of geography: a centre stops once it
+has enough people, and when every centre around a commune was satisfied nobody was allowed to
+take it. 300 communes were stranded that way, none of them far from anywhere.
+
+They are handed out instead. A leftover goes to the neighbouring unit **still short of the
+target**, nearest by road. If every neighbour is already satisfied it goes to the **smallest**
+of them rather than the nearest — handing each to the nearest piled them onto whichever unit
+happened to be adjacent to the most leftovers, and took the worst county from a 219-fold
+spread between its largest and smallest unit to 548. The distance cap still applies, so a
+commune further from every neighbouring seat than anyone should travel is left for the cluster
+step. Repeated until nothing more can be placed, because placing one commune gives its
+neighbours a unit to join.
+
+561 of the 710 are placed this way, and the cluster step now handles 149 rather than 568.
 
 ## Putting communes in the right unit
 

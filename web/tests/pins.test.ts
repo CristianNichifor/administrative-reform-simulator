@@ -194,10 +194,15 @@ describe('what a pin is allowed to break', () => {
     }
 
     // Pin it into any other unit it may legally join, which must split the unit it left.
+    // Same county, or the pin is refused for crossing a line the model forbids — which
+    // would make this test fail for a reason that has nothing to do with splitting a unit.
     let elsewhere = -1;
     for (let e = data.neighbourStart[culprit]!; e < data.neighbourStart[culprit + 1]!; e += 1) {
       const other = base.regionOf[data.neighbours[e]!]!;
-      if (other !== culpritSeat) { elsewhere = other; break; }
+      if (other === culpritSeat) continue;
+      if (data.attributes.county[other] !== data.attributes.county[culprit]) continue;
+      elsewhere = other;
+      break;
     }
     expect(elsewhere).toBeGreaterThanOrEqual(0);
     const result = runModel(data, DEFAULT_PARAMS, [{ uat: culprit, seat: elsewhere }]);
