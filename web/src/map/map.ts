@@ -10,6 +10,7 @@ import {
   Map as MapLibreMap,
   NavigationControl,
   setWorkerUrl,
+  type ExpressionSpecification,
   type MapMouseEvent,
   type StyleSpecification,
 } from 'maplibre-gl';
@@ -54,7 +55,19 @@ export const COUNTY_FOCUS_COLOUR = '#ffd166';
 export const REGION_LINE_COLOUR = '#7cc4de';
 export const SEAT_COLOUR = '#e6e9ee';
 export const CAPITAL_COLOUR = '#ffd166';
-export const ROAD_COLOUR = '#8fa3b8';
+/**
+ * Roads are drawn to be seen, over eleven saturated fills and a near-black basemap.
+ *
+ * They used to be one muted blue-grey at half opacity, which disappeared the moment the unit
+ * colours became vivid — switching the layer on changed almost nothing on screen. Every hue
+ * is spoken for by the palette, so roads separate by brightness instead: a bright core over a
+ * dark casing, which reads against a pale green fill at lightness 82 and against the basemap
+ * alike. Major and county roads differ in brightness and width so the hierarchy is obvious
+ * with both switched on.
+ */
+export const ROAD_COLOUR = '#ffffff';
+export const ROAD_COUNTY_COLOUR = '#9fc6ef';
+export const ROAD_CASING_COLOUR = '#0a0d11';
 
 /**
  * Region colours.
@@ -397,15 +410,39 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
           type: 'geojson',
           data: `${dataBase}roads-county.geojson`,
         });
+        const countyWidth: ExpressionSpecification = [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          6,
+          0.7,
+          9,
+          1.5,
+          12,
+          2.6,
+        ];
+        map.addLayer(
+          {
+            id: 'county-roads-casing',
+            type: 'line',
+            source: 'county-roads',
+            paint: {
+              'line-color': ROAD_CASING_COLOUR,
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.35, 9, 0.6],
+              'line-width': ['+', countyWidth, 1.6],
+            },
+          },
+          UAT_OUTLINE,
+        );
         map.addLayer(
           {
             id: 'county-roads-line',
             type: 'line',
             source: 'county-roads',
             paint: {
-              'line-color': ROAD_COLOUR,
-              'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.15, 8, 0.4, 10, 0.6],
-              'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 9, 0.6, 12, 1.2],
+              'line-color': ROAD_COUNTY_COLOUR,
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 9, 0.85, 12, 0.95],
+              'line-width': countyWidth,
             },
           },
           UAT_OUTLINE,
@@ -414,7 +451,9 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
         return;
       }
       if (loadedOverlays.has('countyRoads')) {
-        map.setLayoutProperty('county-roads-line', 'visibility', visible ? 'visible' : 'none');
+        for (const id of ['county-roads-casing', 'county-roads-line']) {
+          map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+        }
       }
       return;
     }
@@ -424,6 +463,28 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
       // visits never turn it on.
       if (visible && !loadedOverlays.has('roads')) {
         map.addSource('roads', { type: 'geojson', data: `${dataBase}roads.geojson` });
+        const majorWidth: ExpressionSpecification = [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          6,
+          ['match', ['get', 'highway'], 'motorway', 2.2, 'trunk', 1.7, 1.1],
+          11,
+          ['match', ['get', 'highway'], 'motorway', 4.6, 'trunk', 3.6, 2.4],
+        ];
+        map.addLayer(
+          {
+            id: 'roads-casing',
+            type: 'line',
+            source: 'roads',
+            paint: {
+              'line-color': ROAD_CASING_COLOUR,
+              'line-opacity': 0.75,
+              'line-width': ['+', majorWidth, 2],
+            },
+          },
+          UAT_OUTLINE,
+        );
         map.addLayer(
           {
             id: 'roads-line',
@@ -431,14 +492,8 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
             source: 'roads',
             paint: {
               'line-color': ROAD_COLOUR,
-              'line-opacity': 0.55,
-              'line-width': [
-                'match',
-                ['get', 'highway'],
-                'motorway', 1.8,
-                'trunk', 1.3,
-                0.7,
-              ],
+              'line-opacity': 0.95,
+              'line-width': majorWidth,
             },
           },
           UAT_OUTLINE,
@@ -447,7 +502,9 @@ export async function createMap(container: HTMLElement, dataBase: string): Promi
         return;
       }
       if (loadedOverlays.has('roads')) {
-        map.setLayoutProperty('roads-line', 'visibility', visible ? 'visible' : 'none');
+        for (const id of ['roads-casing', 'roads-line']) {
+          map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+        }
       }
       return;
     }
