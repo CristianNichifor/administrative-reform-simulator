@@ -124,13 +124,7 @@ function capitalCore(data: ModelData, params: Params, capital: number, tier: num
 
   // Matches eligibleFor exactly. A centre stood down for a capital that cannot reach it is
   // stranded: it loses its own centre status and nobody arrives to take it.
-  if (tier === TIER_COUNTY_CAPITAL) {
-    for (let e = data.neighbourStart[capital]!; e < data.neighbourStart[capital + 1]!; e += 1) {
-      const nb = data.neighbours[e]!;
-      if (mayAbsorb(data, capital, nb)) core.add(nb);
-    }
-    return core;
-  }
+  if (tier === TIER_COUNTY_CAPITAL) return capitalReach(data, params, capital);
 
   const slice = sliceFor(data, params, tier);
   const radius = tierRadius(params, tier);
@@ -209,10 +203,7 @@ function eligibleFor(data: ModelData, params: Params, seed: number, tier: number
   // them past 10 km by road and one at 30 km. Bucharest is deliberately excluded — it is the
   // national capital, not a resedinta de judet, and its ring is two communes deep.
   if (tier === TIER_COUNTY_CAPITAL) {
-    for (let e = data.neighbourStart[seed]!; e < data.neighbourStart[seed + 1]!; e += 1) {
-      const nb = data.neighbours[e]!;
-      if (mayAbsorb(data, seed, nb)) admitted.set(nb, 0);
-    }
+    for (const nb of capitalReach(data, params, seed)) admitted.set(nb, 0);
     return admitted;
   }
 
@@ -681,12 +672,8 @@ function grow(
       // Resedinte de judet only: a capital wins any contest on its own border outright.
       // `isCapital` is also true for the Bucharest sectors, and the national capital
       // already has its radius.
-      let ownRing = 0;
-      if (data.attributes.isCapital[bidder] && data.countyOf[bidder] !== data.bucharestCounty) {
-        for (let e = data.neighbourStart[bidder]!; e < data.neighbourStart[bidder + 1]!; e += 1) {
-          if (data.neighbours[e] === uat) { ownRing = 1; break; }
-        }
-      }
+      const ownRing =
+        isCountyCapital(data, bidder) && capitalReach(data, params, bidder).has(uat) ? 1 : 0;
       const overshoot =
         isCapped(bidder) &&
         params.pTarget > 0 &&
@@ -791,11 +778,7 @@ function absorbLeftovers(
       if (!capitalsAllowed) {
         for (const unit of [...options.keys()]) {
           if (!isCountyCapital(data, unit)) continue;
-          let onRing = false;
-          for (let e = data.neighbourStart[unit]!; e < data.neighbourStart[unit + 1]!; e += 1) {
-            if (data.neighbours[e] === siruta) { onRing = true; break; }
-          }
-          if (!onRing) options.delete(unit);
+          if (!capitalReach(data, params, unit).has(siruta)) options.delete(unit);
         }
       }
       if (options.size === 0) continue;
@@ -1175,9 +1158,7 @@ function reseatUnits(
     if (newSeat === oldSeat) continue;
     for (const m of list) regionOf[m] = newSeat;
     if (orphanSeats.delete(oldSeat)) orphanSeats.add(newSeat);
-    // Mirrors the reference exactly: the tier moves with the seat, overwriting whatever the
-    // new seat had. Guarding on "only if the new seat has none" left one extra centre in the
-    // count whenever both were seeds, which parity catches as an off-by-one in `seeds`.
+    // Mirrors the reference: the tier moves with the seat.
     if (tierOf[oldSeat] !== -1) {
       tierOf[newSeat] = tierOf[oldSeat]!;
       tierOf[oldSeat] = -1;
@@ -1353,6 +1334,37 @@ const REBALANCE_SWEEPS = 8;
 const SETTLE_ROUNDS = 6;
 
 /** Whether a set of communes forms one piece over the road-connected graph. */
+/**
+ * What a county capital absorbs: everything within its radius by road.
+ *
+ * The radius, measured properly. It first meant area overlap against a buffer round the whole
+ * city polygon, which is why Timisoara's "10 km" admitted communes 30 km away. Replacing it
+ * with "the communes sharing a border with me" fixed the sprawl and threw out road distance
+ * altogether — so Calarasi, with three land neighbours because of the Danube, could not take
+ * Roseti 9.9 km away while Dragalina took it from 45.4 km.
+ */
+const capitalReachCache = new WeakMap<ModelData, Map<string, Set<number>>>();
+
+function capitalReach(data: ModelData, params: Params, capital: number): Set<number> {
+  let byKey = capitalReachCache.get(data);
+  if (!byKey) {
+    byKey = new Map();
+    capitalReachCache.set(data, byKey);
+  }
+  const key = `${capital}:${params.rCapM}`;
+  const hit = byKey.get(key);
+  if (hit) return hit;
+
+  const radius = params.rCapM;
+  const reach = countyRoadDistances(data, data.countyOf[capital]!, [capital]);
+  const out = new Set<number>();
+  for (const [uat, metres] of reach) {
+    if (uat !== capital && metres <= radius && mayAbsorb(data, capital, uat)) out.add(uat);
+  }
+  byKey.set(key, out);
+  return out;
+}
+
 /** A resedinta de judet. `isCapital` also covers the Bucharest sectors, which this is not. */
 function isCountyCapital(data: ModelData, unit: number): boolean {
   return data.attributes.isCapital[unit] === true && data.countyOf[unit] !== data.bucharestCounty;
@@ -1418,11 +1430,9 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       // not require the new seat to be nearer: the rule is that a capital holds its ring,
       // not that it holds whatever is closest to it.
       if (isCountyCapital(data, here)) {
-        let onRing = false;
-        for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
-          if (data.neighbours[e] === siruta) { onRing = true; break; }
-        }
+        const onRing = capitalReach(data, params, here).has(siruta);
         if (!onRing) {
+          const hereAway = reachFrom(here).get(siruta) ?? Infinity;
           const takers: number[] = [];
           for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
             const other = regionOf[data.neighbours[e]!]!;
@@ -1430,6 +1440,11 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
             if (!mayAbsorb(data, other, siruta)) continue;
             const away = reachFrom(other).get(siruta) ?? Infinity;
             if (params.maxRoadM > 0 && away > params.maxRoadM) continue;
+            // Only to a unit that is actually nearer. A capital holding a commune it is
+            // closest to is the road-distance rule, not sprawl: Roseti is 9.9 km from
+            // Calarasi and 45.4 km from Dragalina, and giving it back for being outside the
+            // ring is how it ended up there.
+            if (!(away < hereAway)) continue;
             if (!takers.includes(other)) takers.push(other);
           }
           if (takers.length > 0) {
@@ -1455,13 +1470,7 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       // Rebalancing asks only "is another seat nearer by road", and for a ring commune the
       // answer is often yes — which quietly undid the rule. Twenty-four of the forty-one
       // capitals had lost part of their ring to this pass.
-      if (isCountyCapital(data, here)) {
-        let onRing = false;
-        for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
-          if (data.neighbours[e] === siruta) { onRing = true; break; }
-        }
-        if (onRing) continue;
-      }
+      if (isCountyCapital(data, here) && capitalReach(data, params, here).has(siruta)) continue;
       const hereDistance = reachFrom(here).get(siruta) ?? Infinity;
 
       let target = -1;
@@ -1469,16 +1478,6 @@ function rebalance(data: ModelData, params: Params, regionOf: Uint16Array): numb
       for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
         const there = regionOf[data.neighbours[e]!]!;
         if (there === here || !mayAbsorb(data, there, siruta)) continue;
-        // Never *into* a capital beyond its ring. Rebalancing asks only "is another seat
-        // nearer by road", and a capital's seat very often is, which grew the capitals past
-        // their ring by 172 communes after growth had correctly held them to it.
-        if (isCountyCapital(data, there)) {
-          let onRingOfThere = false;
-          for (let k = data.neighbourStart[there]!; k < data.neighbourStart[there + 1]!; k += 1) {
-            if (data.neighbours[k] === siruta) { onRingOfThere = true; break; }
-          }
-          if (!onRingOfThere) continue;
-        }
         const thereDistance = reachFrom(there).get(siruta) ?? Infinity;
         if (!(thereDistance < hereDistance)) continue;
         if (params.maxRoadM > 0 && thereDistance > params.maxRoadM) continue;

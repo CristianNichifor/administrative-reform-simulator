@@ -180,6 +180,17 @@ describe('what a pin is allowed to break', () => {
         }
       }
       if (seen.size !== inUnit.size) {
+        // It also has to have somewhere legal to go, or the pin is refused for crossing a
+        // county line and the test fails for a reason unrelated to splitting a unit.
+        let hasTarget = false;
+        for (let e = data.neighbourStart[i]!; e < data.neighbourStart[i + 1]!; e += 1) {
+          const other = base.regionOf[data.neighbours[e]!]!;
+          if (other === seat) continue;
+          if (data.attributes.county[other] !== data.attributes.county[i]) continue;
+          hasTarget = true;
+          break;
+        }
+        if (!hasTarget) continue;
         culprit = i;
         culpritSeat = seat;
       }

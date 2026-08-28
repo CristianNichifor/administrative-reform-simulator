@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 248
+SNAPSHOT_DEFAULT_REGIONS = 257
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -369,37 +369,51 @@ class TestParameterResponse:
 
 
 class TestCapitalRing:
-    """A resedinta de judet absorbs the communes bordering it. Nothing overrides this.
+    """A capital holds what it is nearest to, and gives up what it is not.
 
-    It has been broken three separate ways — by the radius admitting the wrong set, by a
-    nearer centre winning the contest, and by the rebalancing pass moving ring communes to a
-    nearer seat afterwards — so it is asserted directly rather than inferred from any of the
-    steps that are supposed to produce it.
+    The rule has been rewritten twice. It began as an area-overlap radius, which let
+    Timisoara reach 30 km and sprawl; that was replaced by "the communes sharing a border
+    with me", which threw road distance out entirely and left Calarasi — three land
+    neighbours because of the Danube — unable to take Roseti 9.9 km away while Dragalina took
+    it from 45.4 km. It is now the radius measured along roads, with nearest-by-road settling
+    anything beyond it.
     """
 
-    def test_every_capital_holds_its_first_ring(self, data, default_run) -> None:
+    def test_a_capital_keeps_what_it_is_nearest_to(self, data, default_run) -> None:
         from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
 
         result, summary = default_run
-        missing: list[str] = []
+        target = summary["params"].p_target
+        wrong: list[str] = []
         for capital in sorted(COUNTY_CAPITAL_SIRUTA):
-            if capital not in data.population:
+            if capital not in data.population or result.region_of.get(capital) != capital:
                 continue
+            from_capital = _county_road_distances(data, data.county[capital], [capital])
             for neighbour in data.neighbours.get(capital, ()):
                 if data.county[neighbour] != data.county[capital]:
                     continue
-                if result.region_of[neighbour] == result.region_of[capital]:
+                holder = result.region_of[neighbour]
+                if holder == capital:
                     continue
-                # The one legitimate escape: a commune that borders the capital but is a
-                # long way round by road. Ocna Sugatag is 50.0 km from Baia Mare and Buchin
-                # 50.3 km from Resita, both across a mountain.
-                road = data.road_distance.get((capital, neighbour), math.inf)
-                if road > summary["params"].max_road_m:
+                here = _county_road_distances(data, data.county[holder], [holder])
+                if here.get(neighbour, math.inf) <= from_capital.get(neighbour, math.inf):
+                    continue  # its own seat is nearer, which is the rule
+                # The capital is nearer, so the only reasons to stay are the ones the model
+                # states: the unit it would leave falls below the target, or comes apart.
+                members = result.members[holder]
+                rest = [m for m in members if m != neighbour]
+                if not rest or not _is_connected(data, rest):
                     continue
-                missing.append(
-                    f"{data.name[capital]} lost {data.name[neighbour]} ({road / 1000:.1f} km)"
+                if target > 0:
+                    before = sum(data.population[m] for m in members)
+                    if before >= target > before - data.population[neighbour]:
+                        continue
+                wrong.append(
+                    f"{data.name[capital]} should hold {data.name[neighbour]} "
+                    f"({from_capital.get(neighbour, math.inf) / 1000:.1f} km vs "
+                    f"{here.get(neighbour, math.inf) / 1000:.1f} km)"
                 )
-        assert missing == []
+        assert wrong == []
 
 
 class TestCompactness:
@@ -452,46 +466,3 @@ class TestCompactness:
         result, _ = default_run
         explicit, _ = run(data, Params(min_compactness=0.0))
         assert result.region_of == explicit.region_of
-
-
-class TestCapitalBeyondItsRing:
-    """A capital holds its ring, and beyond it only what nobody else will take.
-
-    Growth was made to respect this three separate times, and each time a later step undid
-    it: handing out leftovers put 130 communes into capitals, and the rebalancing pass added
-    another 172 by moving anything whose nearest seat happened to be the capital. Asserted on
-    the finished map, because that is the only place the rule is actually visible.
-    """
-
-    def test_extras_have_nowhere_else_to_go(self, data, default_run) -> None:
-        from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
-
-        result, summary = default_run
-        unjustified: list[str] = []
-        for capital in sorted(COUNTY_CAPITAL_SIRUTA):
-            if capital not in data.population or result.region_of.get(capital) != capital:
-                continue
-            ring = set(data.neighbours.get(capital, ())) | {capital}
-            for member in sorted(set(result.members[capital]) - ring):
-                takers = {
-                    result.region_of[n]
-                    for n in data.neighbours.get(member, ())
-                    if data.county[n] == data.county[member]
-                } - {capital}
-                takers = {t for t in takers if t not in COUNTY_CAPITAL_SIRUTA}
-                if not takers:
-                    continue
-                # Two reasons a taker still cannot have it: the capital's unit would come
-                # apart without it, or every taker is beyond the distance cap.
-                rest = [m for m in result.members[capital] if m != member]
-                if not rest or not _is_connected(data, rest):
-                    continue
-                reachable = [
-                    t
-                    for t in takers
-                    if _county_road_distances(data, data.county[t], [t]).get(member, math.inf)
-                    <= summary["params"].max_road_m
-                ]
-                if reachable:
-                    unjustified.append(f"{data.name[capital]} keeps {data.name[member]}")
-        assert unjustified == []

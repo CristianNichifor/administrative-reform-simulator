@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import functools
 import heapq
 import math
 import sys
@@ -366,11 +367,7 @@ def _eligible(data: Data, params: Params, seed: str, tier: int) -> dict[str, flo
     # judet, and its ring is genuinely two communes deep — Cernica borders Pantelimon rather
     # than a sector, and belongs to the city all the same.
     if tier == TIER_COUNTY_CAPITAL:
-        return {
-            neighbour: 0.0
-            for neighbour in data.neighbours.get(seed, ())
-            if _may_absorb(data, seed, neighbour)
-        }
+        return dict.fromkeys(capital_reach(data, params, seed), 0.0)
 
     radius = _tier_radius(params, tier)
 
@@ -625,6 +622,35 @@ def _county_capital(data: Data, county: str) -> str | None:
     return None
 
 
+@functools.cache
+def _capital_reach_cached(data_id: int, capital: str, radius: int) -> frozenset[str]:
+    data = _DATA_BY_ID[data_id]
+    reach = _county_road_distances(data, data.county[capital], [capital])
+    return frozenset(
+        uat
+        for uat, metres in reach.items()
+        if metres <= radius and uat != capital and _may_absorb(data, capital, uat)
+    )
+
+
+def capital_reach(data: Data, params: Params, capital: str) -> set[str]:
+    """What a county capital absorbs: everything within its radius by road.
+
+    The radius, measured properly. It first meant area overlap against a buffer drawn round
+    the whole city polygon, which is why Timisoara's "10 km" admitted communes 30 km away and
+    the capital sprawled. Replacing it with "the communes that share a border with me" fixed
+    the sprawl and threw out road distance altogether — so Calarasi, with three land
+    neighbours because of the Danube, could not take Roseti 9.9 km away, while Dragalina took
+    it from 45.4 km and wrapped around the capital. Nine of Dragalina's fifteen communes were
+    nearer to Calarasi than to their own seat.
+
+    Distance from the capital's seat along the road network, which is what the slider says
+    and what a resident would measure.
+    """
+    _DATA_BY_ID[id(data)] = data
+    return set(_capital_reach_cached(id(data), capital, _tier_radius(params, TIER_COUNTY_CAPITAL)))
+
+
 def _capital_core(data: Data, params: Params, capital: str, tier: int) -> set[str]:
     """UATs close enough to a capital that it takes them over rather than competing.
 
@@ -637,11 +663,7 @@ def _capital_core(data: Data, params: Params, capital: str, tier: int) -> set[st
     # Matches _eligible exactly. A centre stood down for a capital that cannot reach it is
     # stranded: it loses its own centre status and nobody arrives to take it.
     if tier == TIER_COUNTY_CAPITAL:
-        return {
-            neighbour
-            for neighbour in data.neighbours.get(capital, ())
-            if _may_absorb(data, capital, neighbour)
-        }
+        return capital_reach(data, params, capital)
 
     radius = _tier_radius(params, tier)
     sources = [capital]
@@ -737,6 +759,9 @@ def _shadowing_capital(data: Data, params: Params, result: Result, siruta: str) 
 # How many times the rebalancing pass may sweep the country. Each sweep only moves communes
 # strictly closer to another seat, so it converges quickly; the limit is a guard against a
 # pathological cycle, not a tuning knob.
+# Identity map so the reach cache can key on the dataset without hashing it.
+_DATA_BY_ID: dict[int, Data] = {}
+
 _REBALANCE_SWEEPS = 8
 
 # How many times re-seating and consolidation may take turns before the map is called
@@ -889,7 +914,9 @@ def _grow(
         def key(bidder: str, uat: str, row: dict[str, float]) -> tuple:
             # A capital wins any contest for a commune on its own border, outright: a
             # resedinta de judet absorbs the ring around it and nothing overrides that.
-            own_ring = bidder in COUNTY_CAPITAL_SIRUTA and uat in data.neighbours.get(bidder, ())
+            own_ring = bidder in COUNTY_CAPITAL_SIRUTA and uat in capital_reach(
+                data, params, bidder
+            )
             overshoot = (
                 is_capped(bidder)
                 and params.p_target > 0
@@ -1022,7 +1049,7 @@ def _leftover_pass(
                 options = {
                     u: dd
                     for u, dd in options.items()
-                    if u not in COUNTY_CAPITAL_SIRUTA or siruta in data.neighbours.get(u, ())
+                    if u not in COUNTY_CAPITAL_SIRUTA or siruta in capital_reach(data, params, u)
                 }
                 if not options:
                     continue
@@ -1463,7 +1490,7 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             # a unit that would have had them. This hands them over, and unlike an ordinary
             # rebalance it does not require the new seat to be nearer — the rule is that a
             # capital holds its ring, not that it holds whatever is closest to it.
-            if here in COUNTY_CAPITAL_SIRUTA and siruta not in data.neighbours.get(here, ()):
+            if here in COUNTY_CAPITAL_SIRUTA and siruta not in capital_reach(data, params, here):
                 takers = sorted(
                     {
                         result.region_of[n]
@@ -1473,11 +1500,19 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
                         and _may_absorb(data, result.region_of[n], siruta)
                     }
                 )
+                # Only give it back to a unit that is actually nearer. The capital holding
+                # a commune it is closest to is not sprawl, it is the road-distance rule —
+                # Roseti is 9.9 km from Calarasi and 45.4 km from Dragalina, and giving it
+                # back on the grounds that it lay outside the ring is how it ended up there.
+                here_away = reach_from(here).get(siruta, math.inf)
                 takers = [
                     t
                     for t in takers
-                    if params.max_road_m <= 0
-                    or reach_from(t).get(siruta, math.inf) <= params.max_road_m
+                    if (
+                        params.max_road_m <= 0
+                        or reach_from(t).get(siruta, math.inf) <= params.max_road_m
+                    )
+                    and reach_from(t).get(siruta, math.inf) < here_away
                 ]
                 if takers:
                     rest = [m for m in result.members[here] if m != siruta]
@@ -1494,7 +1529,7 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
             # commune the answer is often yes — which quietly undid the rule that a capital
             # absorbs the ring around it. Twenty-four of the forty-one capitals had lost
             # part of their ring to this pass.
-            if here in COUNTY_CAPITAL_SIRUTA and siruta in data.neighbours.get(here, ()):
+            if here in COUNTY_CAPITAL_SIRUTA and siruta in capital_reach(data, params, here):
                 continue
             members = result.members[here]
             here_distance = reach_from(here).get(siruta, math.inf)
@@ -1508,8 +1543,6 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
                 # "is another seat nearer by road", and a capital's seat very often is —
                 # which grew the capitals past their ring by 172 communes after growth had
                 # correctly held them to it.
-                if there in COUNTY_CAPITAL_SIRUTA and siruta not in data.neighbours.get(there, ()):
-                    continue
                 there_distance = reach_from(there).get(siruta, math.inf)
                 if not there_distance < here_distance:
                     continue
@@ -1633,6 +1666,12 @@ def summarise(data: Data, params: Params, result: Result) -> dict:
         "uats": total_uats,
         "reduction_pct": 100 * (1 - len(regions) / total_uats),
         "seeds": len(result.seeds),
+        # Counted from the finished map against the centres originally selected, not from a
+        # set carried along and edited by every later step. A tier moves with the seat when a
+        # unit is re-seated, so "does this seat hold a tier" drifts between two runs that
+        # produce the same map by different routes — which is exactly how the reference and
+        # the port came to disagree by one on Oras Targu Bujor, a commune of 5,946 that was
+        # never a centre in either.
         "orphan_regions": len(result.orphan_regions),
         "unassigned": total_uats - len(result.region_of),
         "savings_admin_ron": savings_admin,

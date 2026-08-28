@@ -171,12 +171,21 @@ gathered enough people to be worth creating. With the radius binding, small cent
 eligible neighbours at 10 km and stopped at 9,000 next to a neighbour of 141,000. The road cap
 still bounds it, so "keeps going" is never unbounded.
 
-*A county capital takes the ring that borders it, and nothing beyond.* Not a radius: the
-radius does not mean what its name suggests. Candidacy is measured as area overlap against a
-buffer drawn round the whole city polygon, so Timisoara's "10 km" admitted 19 communes, 15 of
-them past 10 km by road and one at 30. A capital bounded that way sprawls while the towns
-around it stay small — Timisoara reached 30 communes and 420,000 people while Oras Ciacova
-sat at 21,000. The first ring is unambiguous and does not depend on the shape of the city.
+*A county capital absorbs everything within its radius by road.* The radius, measured properly — and it has been wrong twice.
+
+It first meant area overlap against a buffer drawn round the whole city polygon, so
+Timișoara's "10 km" admitted 19 communes, 15 of them past 10 km by road and one at 30, and
+the capital sprawled to 30 communes while Oraș Ciacova sat at 21,000. Replacing it with "the
+communes that share a border with me" fixed that and threw road distance out altogether:
+Călărași sits on the Danube and has three land neighbours, so it could not take Roseți 9.9 km
+away while Dragalina took it from 45.4 km and wrapped around the capital. Nine of Dragalina's
+fifteen communes were nearer to Călărași than to their own seat.
+
+It is now distance from the capital's seat along the road network, which is what the slider
+says and what a resident would measure, with nearest-by-road settling anything past it.
+Călărași holds 7 UATs and 88,344 people; Dragalina 13 and 50,731. The six communes still
+nearer to Călărași stay where they are for one stated reason: moving any of them drops
+Dragalina below the target, which it clears by 731.
 
 Bucharest is excluded from this: it is the national capital rather than a resedinta de judet,
 and its ring is genuinely two communes deep — Cernica borders Pantelimon rather than a
