@@ -62,6 +62,8 @@ export const DEFAULT_PARAMS: Params = {
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */
+/** Mirrors pipeline/constants.py; parity fails if the two drift. */
+export const PROMOTION_POPULATION_BAND = 3_000;
 export const R_SEP_RELAXATION_FACTOR = 0.75;
 export const R_SEP_RELAXATION_FLOOR_M = 2_000;
 

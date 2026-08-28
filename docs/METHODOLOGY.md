@@ -145,11 +145,19 @@ same commune, one that would pass the target by taking it concedes to one that w
 centre near its target should leave the commune to a neighbour still short of it. Among
 centres equal on that, the nearest by road wins, then the higher tier, then the larger.
 
-*The pool is filled by walking down from the threshold.* Where a county has fewer centres
-than the minimum, the next one is the town whose population is closest to the threshold from
-below. This used to maximise uncovered population reached, which answers "who would sweep up
-the most" rather than "who is the next plausible town", and it picked Curcani, a commune of
-5,301, over Oras Budesti at 7,126.
+*The pool is filled by walking down from the threshold, preferring the better-placed
+candidate among towns of comparable size.* Where a county has fewer centres than the minimum,
+the next one is the next plausible town — a question about size. This used to maximise
+uncovered population reached, which answers "who would sweep up the most" instead, and picked
+Curcani, a commune of 5,301, over Oraș Budești at 7,126.
+
+Size alone is not enough either. There is a separation floor of 15 km by road, but taking the
+first candidate that clears it means position stops mattering the moment it is cleared: a town
+15.1 km from an existing centre beat one of nearly the same size 30 km away, and 15 of the 41
+counties ended with their centres clustered rather than spread. Populations are now compared
+in bands of 3,000, and within a band the more distant candidate wins. Clustered counties fall
+to 13, and the median distance between a promoted centre and its nearest neighbour rises from
+22.6 km to 32.7.
 
 *Every centre takes its first ring before any centre takes a second.* Growth is ordered by
 ring first and by road distance only within a ring. Ordered by distance alone it was a single

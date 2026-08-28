@@ -41,6 +41,17 @@ RADIUS_RANGE_M: Final = (5_000, 30_000)
 N_MIN_DEFAULT: Final = 5
 N_MIN_RANGE: Final = (1, 10)
 
+# Promotion compares candidate populations in bands of this size rather than exactly.
+#
+# Walking straight down the population list takes the first town that clears the separation
+# floor, and once cleared, distance stops mattering — so a town 15.1 km from an existing
+# centre beat one of almost the same size 30 km away, and 15 of the 41 counties ended with
+# their centres clustered rather than spread. Within a band the candidates count as the same
+# size and the better-placed one wins. A quarter of the default threshold: wide enough that
+# near-equal towns compete on position, narrow enough that a genuinely bigger town still
+# wins outright.
+PROMOTION_POPULATION_BAND: Final = 3_000
+
 R_SEP_DEFAULT_M: Final = 15_000
 R_SEP_RANGE_M: Final = (0, 30_000)
 

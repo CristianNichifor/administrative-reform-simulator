@@ -50,6 +50,7 @@ from pipeline.constants import (
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
     P_TARGET_DEFAULT,
+    PROMOTION_POPULATION_BAND,
     R_CAP_DEFAULT_M,
     R_NATIONAL_DEFAULT_M,
     R_SEP_DEFAULT_M,
@@ -458,18 +459,23 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
                     nearest = separation.get(candidate, math.inf)
                     if nearest < r_sep:
                         continue
-                # Walk down from the threshold: the next candidate is the one whose
-                # population is closest to it from below.
+                # Walk down from the threshold, but prefer the better-placed candidate
+                # among towns of comparable size.
                 #
-                # This step exists because a county came up short of its quota, and the
-                # question it answers is "who is the next most plausible town", which is a
-                # question about size. It used to maximise uncovered population reached,
-                # which answers "who would sweep up the most", and that picked scattered
-                # communes over the obvious next town — Curcani, a commune of 5,301, over
-                # Oras Budesti at 7,126. Administrative standing breaks ties, so a town
-                # beats a commune of the same size.
+                # The question this step answers is "who is the next most plausible town",
+                # which is about size — it used to maximise uncovered population reached,
+                # which answers "who would sweep up the most", and that picked Curcani, a
+                # commune of 5,301, over Oras Budesti at 7,126.
+                #
+                # But size alone takes the first candidate clearing the separation floor and
+                # then stops caring about position, so a town 15.1 km from an existing centre
+                # beat one of nearly the same size 30 km away. Populations are compared in
+                # bands; within a band the more distant candidate wins, which is what spreads
+                # the centres over the county instead of stacking them in its densest corner.
+                nearest = separation.get(candidate, math.inf) if separation else math.inf
                 key = (
-                    -data.population[candidate],
+                    -(data.population[candidate] // PROMOTION_POPULATION_BAND),
+                    -nearest if math.isfinite(nearest) else -math.inf,
                     data.admin_rank[candidate],
                     candidate,
                 )

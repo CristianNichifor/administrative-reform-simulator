@@ -20,6 +20,7 @@ import {
   TIER_NATIONAL_CAPITAL,
   TIER_POPULATION,
   TIER_PROMOTED,
+  PROMOTION_POPULATION_BAND,
   REASON,
   type ModelData,
   type ModelResult,
@@ -442,8 +443,7 @@ function selectSeeds(data: ModelData, params: Params): {
         seedsHere.length > 0 ? countyRoadDistances(data, county, seedsHere) : null;
 
       let bestIndex = -1;
-      let bestRank = 99;
-      let bestPop = -1;
+      let bestKey: number[] | null = null;
 
       for (const candidate of pool) {
         if (separation && rSep > 0) {
@@ -452,23 +452,24 @@ function selectSeeds(data: ModelData, params: Params): {
           if ((separation.get(candidate) ?? Infinity) < rSep) continue;
         }
 
-        // Walk down from the threshold: the next centre is the one whose population is
-        // closest to it from below. This step exists because a county came up short, and
-        // the question it answers is "who is the next most plausible town", which is about
-        // size. Maximising uncovered population reached answers "who would sweep up the
-        // most", and that picked scattered communes over the obvious town — Curcani, a
-        // commune of 5,301, over Oras Budesti at 7,126.
-        const pop = data.population[candidate]!;
+        // Walk down from the threshold, but prefer the better-placed candidate among towns
+        // of comparable size.
+        //
+        // The question this step answers is "who is the next most plausible town", which is
+        // about size — maximising uncovered population reached answers "who would sweep up
+        // the most", and that picked Curcani, a commune of 5,301, over Oras Budesti at
+        // 7,126. But size alone takes the first candidate clearing the separation floor and
+        // then stops caring about position, so a town 15.1 km from an existing centre beat
+        // one of nearly the same size 30 km away, and 15 of the 41 counties ended with their
+        // centres clustered. Populations are compared in bands; within a band the more
+        // distant candidate wins.
+        const band = Math.floor(data.population[candidate]! / PROMOTION_POPULATION_BAND);
+        const nearest = separation ? (separation.get(candidate) ?? Infinity) : Infinity;
         const rank = data.attributes.adminRank[candidate]!;
-        if (
-          bestIndex === -1 ||
-          pop > bestPop ||
-          (pop === bestPop && rank < bestRank) ||
-          (pop === bestPop && rank === bestRank && candidate < bestIndex)
-        ) {
+        const key = [-band, Number.isFinite(nearest) ? -nearest : -Infinity, rank, candidate];
+        if (bestKey === null || lessThan(key, bestKey)) {
+          bestKey = key;
           bestIndex = candidate;
-          bestRank = rank;
-          bestPop = pop;
         }
       }
 
