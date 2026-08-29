@@ -98,6 +98,7 @@ export interface Strings {
   centre: string;
   members: string;
   population: string;
+  area: string;
   fiscalHeading: string;
   savingsHeading: string;
   ownIncome: string;
@@ -245,6 +246,7 @@ const ro: Strings = {
   centre: 'Centru',
   members: 'Comune componente',
   population: 'Populație',
+  area: 'Suprafață',
   fiscalHeading: 'Situație fiscală',
   savingsHeading: 'Economii estimate',
   ownIncome: 'Venituri totale',
@@ -392,6 +394,7 @@ const en: Strings = {
   centre: 'Centre',
   members: 'Component communes',
   population: 'Population',
+  area: 'Area',
   fiscalHeading: 'Fiscal position',
   savingsHeading: 'Estimated saving',
   ownIncome: 'Total income',

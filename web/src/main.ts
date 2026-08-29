@@ -872,9 +872,11 @@ async function boot(): Promise<void> {
     const unit = latest.regionOf[index]!;
     let unitPop = 0;
     let unitMembers = 0;
+    let unitArea = 0;
     for (let i = 0; i < latest.regionOf.length; i += 1) {
       if (latest.regionOf[i] === unit) {
         unitPop += ready.population[i]!;
+        unitArea += ready.areaKm2[i]!;
         unitMembers += 1;
       }
     }
@@ -886,10 +888,18 @@ async function boot(): Promise<void> {
         ready.population[index]!,
         scenario.lang,
       )}</span></div>
+      <div class="line"><span>${strings.area}</span><span>${formatNumber(
+        Math.round(ready.areaKm2[index]!),
+        scenario.lang,
+      )} km²</span></div>
       <div class="after">
         <div class="line">
           <span>${unchanged ? strings.legendUnchanged : strings.hoverProposed}</span>
           <span>${formatNumber(unitPop, scenario.lang)}</span>
+        </div>
+        <div class="line">
+          <span>${strings.area}</span>
+          <span>${formatNumber(Math.round(unitArea), scenario.lang)} km²</span>
         </div>
         ${
           unchanged

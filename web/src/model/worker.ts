@@ -80,6 +80,8 @@ export interface ReadyMessage {
   personnelRon: Float32Array;
   adminPersonnelRon: Float32Array;
   incomeRon: Float32Array;
+  /** Land area per UAT, for the hover card: how much ground a unit actually covers. */
+  areaKm2: Float32Array;
   /**
    * Colours for the map as it is today, where every commune is its own unit.
    *
@@ -177,6 +179,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         personnelRon: data.personnelRon.slice(),
         adminPersonnelRon: data.adminPersonnelRon.slice(),
         incomeRon: data.incomeRon.slice(),
+        areaKm2: data.areaKm2.slice(),
         currentColourOf,
         countyNames: data.manifest.countyNames ?? {},
       };
@@ -188,6 +191,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
         ready.personnelRon.buffer,
         ready.adminPersonnelRon.buffer,
         ready.incomeRon.buffer,
+        ready.areaKm2.buffer,
         ready.currentColourOf.buffer,
       ]);
       return;
