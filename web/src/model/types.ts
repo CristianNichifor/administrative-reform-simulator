@@ -48,6 +48,10 @@ export interface Params {
   maxRoadM: number;
   /** Polsby-Popper floor for a unit's shape; 0 switches the rule off. */
   minCompactness: number;
+  /** Contest distances within this band count as equal; the smaller unit then wins. */
+  rTieM: number;
+  /** A stranded unit below this may break the distance cap rather than stay a leftover. */
+  pStranded: number;
 }
 
 export const DEFAULT_PARAMS: Params = {
@@ -62,6 +66,8 @@ export const DEFAULT_PARAMS: Params = {
   pTarget: 50_000,
   maxRoadM: 50_000,
   minCompactness: 0,
+  rTieM: 0,
+  pStranded: 15_000,
 };
 
 /** Seed-promotion relaxation, mirroring `pipeline/constants.py`. */

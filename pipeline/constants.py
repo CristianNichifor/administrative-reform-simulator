@@ -89,6 +89,21 @@ P_TARGET_RANGE: Final = (0, 100_000)
 # is refused. The median unit scores 0.24 and a fifth fall below 0.20, so 0.15 tidies the
 # worst edges and 0.25 reshapes most of the country.
 MIN_COMPACTNESS_DEFAULT: Final = 0.0
+
+# Two absorbers this close to the same commune count as equally close, and the one holding
+# less takes it. Raw distance decides contests by metres, which is a precision the road data
+# does not have and which means nothing administratively: a commune 4.1 km from one centre
+# and 4.4 km from another is, to anyone living there, the same distance from both. Letting
+# size decide inside that band is what stops one centre reaching 60,000 beside one at 15,000.
+# Zero restores the old ordering exactly, so the default changes no result.
+R_TIE_DEFAULT_M: Final = 0
+
+# A unit below this, with no partner the distance cap allows, is a leftover rather than a
+# small unit, and the last-resort pass may break the cap to place it. Above it a unit that
+# the cap has stranded is left alone: it is small, but it is a real administration and
+# dissolving it into a neighbour 60 km away is the worse answer. Set to the target it would
+# rescue every stranded unit and collapse municipii like Vatra Dornei into their neighbours.
+P_STRANDED_DEFAULT: Final = 15_000
 MIN_COMPACTNESS_RANGE: Final = (0.0, 0.35)
 
 MAX_ROAD_DEFAULT_M: Final = 50_000

@@ -30,6 +30,8 @@ const KEYS: Record<keyof Params, string> = {
   pTarget: 'pt',
   maxRoadM: 'mr',
   minCompactness: 'mc',
+  rTieM: 'rte',
+  pStranded: 'ps',
 };
 
 export function encode(scenario: Scenario): string {
@@ -93,6 +95,8 @@ export function decode(hash: string, lang: Lang): Scenario {
       nMin: num(q.get(KEYS.nMin), DEFAULT_PARAMS.nMin),
       rSepM: num(q.get(KEYS.rSepM), DEFAULT_PARAMS.rSepM),
       minOverlap: num(q.get(KEYS.minOverlap), DEFAULT_PARAMS.minOverlap),
+      rTieM: num(q.get(KEYS.rTieM), DEFAULT_PARAMS.rTieM),
+      pStranded: num(q.get(KEYS.pStranded), DEFAULT_PARAMS.pStranded),
       pOrphan: num(q.get(KEYS.pOrphan), DEFAULT_PARAMS.pOrphan),
       pTarget: num(q.get(KEYS.pTarget), DEFAULT_PARAMS.pTarget),
       maxRoadM: num(q.get(KEYS.maxRoadM), DEFAULT_PARAMS.maxRoadM),

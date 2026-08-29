@@ -241,8 +241,28 @@ describe('pins accumulate', () => {
 });
 
 describe('why a unit could not merge', () => {
-  it('separates the county-stranded from the merely distant', () => {
+  it('leaves no single-commune unit at all under the default parameters', () => {
+    // What this file used to assert was that every unit left alone had a stated reason.
+    // The last-resort pass removed the phenomenon: no unit is a single commune any more,
+    // because one that the cap had stranded now breaks the cap rather than stand alone.
+    // The reasons below are still needed — the pass is a parameter, and turning it off
+    // brings the leftovers back — but at the default there is nothing left to explain.
     const result = runModel(data, DEFAULT_PARAMS);
+    const count = new Map<number, number>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const seat = result.regionOf[i]!;
+      count.set(seat, (count.get(seat) ?? 0) + 1);
+    }
+    const alone = [...count]
+      .filter(([, n]) => n === 1)
+      .map(([seat]) => data.attributes.name[seat]!);
+    expect(alone).toEqual([]);
+  });
+
+  it('separates the county-stranded from the merely distant', () => {
+    // With the last-resort pass off, so that there are stranded units to explain.
+    const params = { ...DEFAULT_PARAMS, pStranded: 0 };
+    const result = runModel(data, params);
     const singles: number[] = [];
     const count = new Map<number, number>();
     for (let i = 0; i < data.uatCount; i += 1) {
@@ -265,13 +285,13 @@ describe('why a unit could not merge', () => {
       for (let i = 0; i < data.uatCount; i += 1) {
         if (result.regionOf[i] === seat) pop += data.population[i]!;
       }
-      if (pop >= DEFAULT_PARAMS.pTarget) continue;
-      const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat);
+      if (pop >= params.pTarget) continue;
+      const blocker = mergeBlocker(data, params, result.regionOf, seat);
       expect(blocker, `${data.attributes.name[seat]} is alone for no stated reason`).not.toBeNull();
       byKind[blocker!.kind]!.push(data.attributes.name[seat]!);
       if (blocker!.kind === 'cap') {
         // A cap answer has to be actionable: past the cap, and a real distance.
-        expect(blocker!.metres).toBeGreaterThan(DEFAULT_PARAMS.maxRoadM);
+        expect(blocker!.metres).toBeGreaterThan(params.maxRoadM);
         expect(Number.isFinite(blocker!.metres)).toBe(true);
       }
     }
@@ -314,7 +334,10 @@ describe('why a unit could not merge', () => {
   });
 
   it('stops blocking once the cap is raised past the distance it reported', () => {
-    const result = runModel(data, DEFAULT_PARAMS);
+    // Again with the last-resort pass off: it exists precisely to remove cap-blocked units,
+    // so with it on there is nothing here to report.
+    const params = { ...DEFAULT_PARAMS, pStranded: 0 };
+    const result = runModel(data, params);
     // Whichever unit the cap is currently holding back — named cases move as the rules
     // change, and the property under test is about the number, not about one commune.
     const counts = new Map<number, number>();
@@ -325,13 +348,13 @@ describe('why a unit could not merge', () => {
     let chilia = -1;
     for (const [seat, n] of counts) {
       if (n !== 1) continue;
-      if (mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat)?.kind === 'cap') {
+      if (mergeBlocker(data, params, result.regionOf, seat)?.kind === 'cap') {
         chilia = seat;
         break;
       }
     }
     if (chilia === -1) throw new Error('no unit is currently held back by the cap');
-    const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, chilia);
+    const blocker = mergeBlocker(data, params, result.regionOf, chilia);
     expect(blocker?.kind).toBe('cap');
     const needed = (blocker as { metres: number }).metres;
 
@@ -339,7 +362,7 @@ describe('why a unit could not merge', () => {
     // against the *same* map: re-running the model with a higher cap produces a different
     // map, in which some other configuration can legitimately be cap-blocked again, so
     // re-running would not test the claim.
-    const raisedParams = { ...DEFAULT_PARAMS, maxRoadM: Math.ceil(needed) + 1000 };
+    const raisedParams = { ...params, maxRoadM: Math.ceil(needed) + 1000 };
     const after = mergeBlocker(data, raisedParams, result.regionOf, chilia);
     expect(after?.kind).not.toBe('cap');
   });

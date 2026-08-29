@@ -17,7 +17,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { decode } from '../src/model/load';
 import { runModel } from '../src/model/model';
-import type { ModelData, Params } from '../src/model/types';
+import { DEFAULT_PARAMS, type ModelData, type Params } from '../src/model/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = resolve(here, '../public/data');
@@ -36,6 +36,8 @@ interface FixtureCase {
     p_target: number;
     max_road_m: number;
     min_compactness: number;
+    r_tie_m?: number;
+    p_stranded?: number;
   };
   regions: number;
   seeds: number;
@@ -76,6 +78,8 @@ function toParams(p: FixtureCase['params']): Params {
     pTarget: p.p_target,
     maxRoadM: p.max_road_m,
     minCompactness: p.min_compactness ?? 0,
+    rTieM: p.r_tie_m ?? DEFAULT_PARAMS.rTieM,
+    pStranded: p.p_stranded ?? DEFAULT_PARAMS.pStranded,
   };
 }
 

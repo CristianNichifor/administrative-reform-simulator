@@ -11,8 +11,10 @@ import math
 
 import pytest
 
+from pipeline.constants import ADMIN_RANK_MUNICIPIU
 from pipeline.paths import PROCESSED_DIR
 from pipeline.reference_model import (
+    BUCHAREST_COUNTY_CODE,
     Params,
     _county_capital,
     _county_road_distances,
@@ -40,7 +42,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 254
+SNAPSHOT_DEFAULT_REGIONS = 251
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -283,16 +285,27 @@ class TestMinimumTargetPopulation:
     def test_units_below_target_are_blocked_by_distance_or_isolation(self, data) -> None:
         """A unit may finish under the target, but only for a reason.
 
-        Three reasons are legitimate: it has no same-county neighbour at all, merging with
-        every one of them would put some commune beyond the distance cap, or every neighbour
-        that could take it is a county capital — and a capital is finished once it has taken
-        the ring that borders it. Anything else means the consolidation loop stopped early
-        and left a unit smaller than it needed to be.
+        Four reasons are legitimate: it has no same-county neighbour at all, merging with
+        every one of them would put some commune beyond the distance cap, every neighbour
+        that could take it is a county capital — a capital is finished once it has taken the
+        ring that borders it — or its county is already down to the minimum number of units,
+        where coverage outranks size and no further merge is allowed at any population.
+        Anything else means the consolidation loop stopped early and left a unit smaller
+        than it needed to be.
+
+        The county-floor branch covers 31 of the 99 under-target units, so the other 68 must
+        still earn their size through distance or isolation. An exemption wide enough to
+        absorb every case would leave nothing being tested.
         """
         from pipeline.county_capitals import COUNTY_CAPITAL_SIRUTA
 
         params = Params(p_target=50_000)
         result, _ = run(data, params)
+
+        units_in_county: dict[str, int] = {}
+        for unit in result.members:
+            county = data.county[unit]
+            units_in_county[county] = units_in_county.get(county, 0) + 1
 
         def standing(unit: str) -> tuple[int, int, str]:
             # Must mirror the model's own ordering, which now leads on administrative rank.
@@ -305,6 +318,10 @@ class TestMinimumTargetPopulation:
 
         for absorber, members in result.members.items():
             if sum(data.population[m] for m in members) >= params.p_target:
+                continue
+            county = data.county[absorber]
+            # Bucharest is one city and carries no minimum, so it is not exempt here.
+            if county != BUCHAREST_COUNTY_CODE and units_in_county[county] <= params.n_min:
                 continue
             neighbours = {
                 result.region_of[n]
@@ -472,6 +489,168 @@ class TestCompactness:
         result, _ = default_run
         explicit, _ = run(data, Params(min_compactness=0.0))
         assert result.region_of == explicit.region_of
+
+
+class TestLastResort:
+    """The pass that places units the distance cap has stranded.
+
+    `consolidate_to_target` refuses a merge that would put any commune beyond the cap. On a
+    county border that leaves units of a single commune — Bulzesti, 1,269 people, four of
+    its five neighbours in other counties and the fifth over the cap. This pass lets the cap
+    yield where nothing legal exists, and nothing else yield at all.
+    """
+
+    def test_no_unit_is_left_a_tiny_leftover(self, data) -> None:
+        params = Params()
+        result, _ = run(data, params)
+        tiny = {
+            data.name[seat]: sum(data.population[m] for m in members)
+            for seat, members in result.members.items()
+            if sum(data.population[m] for m in members) < 5_000
+        }
+        assert tiny == {}, tiny
+
+    def test_it_stays_a_last_resort(self, data) -> None:
+        """It must not become a second consolidation pass.
+
+        Applied to every stranded unit rather than only the leftovers it merged 41 units
+        instead of 13, chaining Lipova into Podu Turcului into Nicolae Balcescu and
+        dissolving Municipiul Vatra Dornei. The two guards that hold it back are the
+        population threshold and the requirement that nothing legal was available, so this
+        pins the scale that both of them produce.
+        """
+        result, _ = run(data, Params())
+        assert result.last_resort, "the pass did nothing, so the rest proves nothing"
+        assert len(result.last_resort) <= 20, {
+            data.name[k]: data.name[v] for k, v in result.last_resort.items()
+        }
+        # Nothing it merged may still be a unit.
+        assert not (set(result.last_resort) & set(result.members))
+
+    def test_a_unit_with_a_legal_partner_is_left_to_the_ordinary_rules(self, data) -> None:
+        """Having *any* partner inside the cap disqualifies a unit from the last resort.
+
+        Oras Seini (11,949) is the case. Without this check it is dissolved into Municipiul
+        Baia Mare — the capital-as-drain failure the consolidation rules exist to prevent.
+        With it, Seini stays its own unit and is reported as below target, which is the
+        honest outcome: it is small because its options are, not because nothing was tried.
+        """
+        result, _ = run(data, Params())
+        seini = next(s for s in data.population if data.name[s] == "ORAȘ SEINI")
+        assert seini not in result.last_resort
+        assert result.region_of[seini] == seini, data.name[result.region_of[seini]]
+
+    def test_it_never_crosses_a_county_line(self, data) -> None:
+        params = Params()
+        result, _ = run(data, params)
+        for dropped, keeper in result.last_resort.items():
+            assert data.county[dropped] == data.county[keeper], (
+                f"{data.name[dropped]} ({data.county[dropped]}) went to "
+                f"{data.name[keeper]} ({data.county[keeper]})"
+            )
+
+    def test_it_respects_the_county_minimum(self, data) -> None:
+        params = Params()
+        result, _ = run(data, params)
+        counts: dict[str, int] = {}
+        for unit in result.members:
+            counts[data.county[unit]] = counts.get(data.county[unit], 0) + 1
+        short = {c: n for c, n in counts.items() if n < params.n_min and c != BUCHAREST_COUNTY_CODE}
+        assert short == {}, short
+
+    def test_it_leaves_units_above_the_threshold_alone(self, data) -> None:
+        # A unit the cap has stranded but which is a viable administration is not a leftover.
+        # Rescuing those too collapsed Municipiul Vatra Dornei into its neighbour.
+        params = Params()
+        result, _ = run(data, params)
+        for dropped in result.last_resort:
+            assert data.admin_rank[dropped] > ADMIN_RANK_MUNICIPIU, (
+                f"{data.name[dropped]} is a municipiu and should not be dissolved"
+            )
+
+    def test_the_partner_is_chosen_by_shape_not_by_distance(self, data) -> None:
+        """Where there is a choice, the better-shaped merge wins.
+
+        At the default threshold every stranded unit has effectively one candidate, so this
+        uses a wider one where the choice is real: Oras Baile Herculane's nearest partner is
+        Oras Oravita, but merging into Oras Moldova Noua gives the more compact unit.
+        """
+        params = Params(p_stranded=25_000)
+        result, _ = run(data, params)
+        herculane = next(s for s in data.population if data.name[s] == "ORAȘ BĂILE HERCULANE")
+        keeper = result.last_resort.get(herculane)
+        assert keeper is not None, "Baile Herculane was expected to be stranded here"
+        assert data.name[keeper] == "ORAȘ MOLDOVA NOUĂ", data.name[keeper]
+
+
+class TestSeating:
+    def test_a_unit_is_never_seated_below_a_member_in_rank(self, data) -> None:
+        """A unit is named after the most significant town in it, always.
+
+        Filtering seat candidates by the distance cap before comparing rank preferred a
+        commune that held the cap to a town that did not: Gropeni (3,022) seated a unit
+        containing Municipiul Braila (154,686), and Zorleni one containing Oras Murgeni.
+        """
+        result, _ = run(data, Params())
+        wrong = [
+            f"{data.name[seat]} (rank {data.admin_rank[seat]}) seats "
+            f"{data.name[min(members, key=lambda m: data.admin_rank[m])]}"
+            for seat, members in result.members.items()
+            if any(data.admin_rank[m] < data.admin_rank[seat] for m in members)
+        ]
+        assert wrong == [], wrong
+
+
+class TestCountyMinimum:
+    """Every county keeps at least `n_min` units, even where that leaves them under target.
+
+    Coverage outranks size. A county reduced to two units has no administrative geography
+    left worth the name however large those two are, so the floor binds first and the
+    under-target count is allowed to rise to pay for it.
+    """
+
+    def test_every_county_meets_the_minimum(self, data) -> None:
+        params = Params()
+        result, _ = run(data, params)
+        counts: dict[str, int] = {}
+        for unit in result.members:
+            county = data.county[unit]
+            counts[county] = counts.get(county, 0) + 1
+        # Bucharest is a single city, not a county that needs a spread of centres.
+        short = {c: n for c, n in counts.items() if n < params.n_min and c != BUCHAREST_COUNTY_CODE}
+        assert short == {}, f"counties below the minimum of {params.n_min}: {short}"
+
+    def test_the_floor_holds_at_a_target_high_enough_to_flatten_the_country(self, data) -> None:
+        # At 200,000 nearly every county would collapse to one or two units on population
+        # alone, so this is where a floor that only worked at the default would show itself.
+        params = Params(p_target=200_000)
+        result, _ = run(data, params)
+        counts: dict[str, int] = {}
+        for unit in result.members:
+            counts[data.county[unit]] = counts.get(data.county[unit], 0) + 1
+        short = {c: n for c, n in counts.items() if n < params.n_min and c != BUCHAREST_COUNTY_CODE}
+        assert short == {}, f"counties below the minimum at a 200k target: {short}"
+
+    def test_ilfov_reaches_the_minimum_without_taking_bucharests_ring(self, data) -> None:
+        """The one county where the floor and the capital ring genuinely compete.
+
+        Ilfov is a doughnut around Bucharest, so the only centres it has to promote are
+        communes the city borders. Promotion reached for two of them — Popesti-Leordeni and
+        Voluntari — and Ilfov hit five by taking them off Bucharest. The ring is the older
+        and stronger rule, so promotion is barred from it and Ilfov finds its five elsewhere.
+        """
+        params = Params()
+        result, _ = run(data, params)
+        ilfov = [unit for unit in result.members if data.county[unit] == "IF"]
+        assert len(ilfov) >= params.n_min, [data.name[u] for u in ilfov]
+
+        sectors = {s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE}
+        bucharest = result.region_of[sorted(sectors)[0]]
+        ring = {n for s in sectors for n in data.neighbours.get(s, ())} - sectors
+        held_by_the_city = set(result.members[bucharest])
+        assert ring <= held_by_the_city, [data.name[s] for s in sorted(ring - held_by_the_city)]
+        # And none of Ilfov's centres is a commune the city borders.
+        assert not (set(ilfov) & ring), [data.name[u] for u in set(ilfov) & ring]
 
 
 class TestFirstRing:

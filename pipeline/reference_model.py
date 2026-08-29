@@ -53,6 +53,7 @@ from pipeline.constants import (
     MIN_OVERLAP_DEFAULT,
     N_MIN_DEFAULT,
     P_ORPHAN_DEFAULT,
+    P_STRANDED_DEFAULT,
     P_TARGET_DEFAULT,
     PROMOTION_POPULATION_BAND,
     R_CAP_DEFAULT_M,
@@ -60,6 +61,7 @@ from pipeline.constants import (
     R_SEP_DEFAULT_M,
     R_SEP_RELAXATION_FACTOR,
     R_SEP_RELAXATION_FLOOR_M,
+    R_TIE_DEFAULT_M,
     R_TOWN_DEFAULT_M,
     RADIUS_GRID_M,
     TIER_COUNTY_CAPITAL,
@@ -85,6 +87,8 @@ class Params:
     p_target: int = P_TARGET_DEFAULT
     max_road_m: int = MAX_ROAD_DEFAULT_M
     min_compactness: float = MIN_COMPACTNESS_DEFAULT
+    r_tie_m: int = R_TIE_DEFAULT_M
+    p_stranded: int = P_STRANDED_DEFAULT
 
     def snapped(self) -> Params:
         """Radii must land on the precomputed grid; the UI slider snaps to it too."""
@@ -100,6 +104,8 @@ class Params:
             p_target=self.p_target,
             max_road_m=self.max_road_m,
             min_compactness=self.min_compactness,
+            r_tie_m=self.r_tie_m,
+            p_stranded=self.p_stranded,
         )
 
 
@@ -151,6 +157,8 @@ class Result:
     # How many communes the rebalancing pass moved to a nearer seat.
     rebalanced: int = 0
     relaxed_counties: dict[str, float] = field(default_factory=dict)
+    # Units the cap had stranded, and the unit each was finally merged into.
+    last_resort: dict[str, str] = field(default_factory=dict)
 
 
 def load_data() -> Data:
@@ -447,6 +455,15 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         if _may_absorb(data, capital, siruta)
     }
 
+    # A capital's own ring, across every capital. Narrower than the stand-down reach: the
+    # reach is who a capital displaces, the ring is what it actually holds.
+    capital_rings = {
+        member
+        for capital, tier in result.seeds.items()
+        if tier in (TIER_NATIONAL_CAPITAL, TIER_COUNTY_CAPITAL)
+        for member in capital_ring(data, params, capital)
+    }
+
     for county_code in sorted(data.by_county):
         # Bucharest is one city, not a county needing a spread of centres. Promotion here
         # was making four of its six sectors into centres in their own right — exactly the
@@ -462,17 +479,33 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
         # and there a town with a town hall is a better answer than a large commune. Oras
         # Budesti (7,126) fell below the threshold and so could not even be considered, which
         # is how Curcani — a commune of 5,301 — came to seat a unit containing it.
-        pool = [
-            s
-            for s in data.by_county[county_code]
-            if (s in data.absorbers or data.admin_rank[s] <= ADMIN_RANK_ORAS)
-            and s not in result.seeds
-            # A stood-down centre is not among "all the other potential absorbers": being
-            # removed from `seeds` would otherwise let it be promoted straight back, which
-            # is how Oras Babeni came to stand alone inside Ramnicu Valcea's reach.
-            and s not in result.held
-            and s not in capital_reach
-        ]
+        def candidates(allow_displaced: bool, county_code: str = county_code) -> list[str]:
+            return [
+                s
+                for s in data.by_county[county_code]
+                if (s in data.absorbers or data.admin_rank[s] <= ADMIN_RANK_ORAS)
+                and s not in result.seeds
+                # A stood-down centre is not among "all the other potential absorbers":
+                # being removed from `seeds` would otherwise let it be promoted straight
+                # back, which is how Oras Babeni came to stand alone inside Ramnicu Valcea's
+                # reach.
+                # Never a capital's own ring, however short the county is. Ilfov can only
+                # reach five units by promoting communes that border Bucharest, and the city
+                # holding everything that touches it is the stronger rule — it was asked for
+                # first and asserted directly by a test.
+                and s not in capital_rings
+                and (allow_displaced or (s not in result.held and s not in capital_reach))
+            ]
+
+        # Displaced, but not disqualified — when the county has nobody else at all.
+        #
+        # Standing a centre down barred it from ever being promoted again, and in Ilfov that
+        # left the pool empty: 33 of its 40 communes sit inside Bucharest's or Buftea's
+        # reach, so 28 UATs over the threshold produced three units against a minimum of
+        # five. Coverage is the point of the minimum, so a commune the capital displaced but
+        # does not hold should still be able to lead a unit.
+        pool = candidates(False)
+        widened = False
         covered: set[str] = set()
         for seed in in_county:
             covered |= _reach(data, params, seed, result.seeds[seed])
@@ -517,6 +550,16 @@ def select_seeds(data: Data, params: Params, result: Result) -> None:
                 if best is None or key < best:
                     best = key
                     best_siruta = candidate
+
+            if best_siruta is None and not widened:
+                # Widen before relaxing. `candidates(False) or candidates(True)` was not
+                # enough: it falls back only when the restricted pool is *empty*, and
+                # Ilfov's was not — it held candidates that all failed the separation test,
+                # so the county stayed on three centres against a minimum of five while 30
+                # communes stood available.
+                widened = True
+                pool = candidates(True)
+                continue
 
             if best_siruta is None:
                 r_sep *= R_SEP_RELAXATION_FACTOR
@@ -584,7 +627,10 @@ def accrete(data: Data, params: Params, result: Result) -> None:
         if result.region_of.get(absorber) != absorber:
             continue
         capital = _county_capital(data, data.county[absorber])
-        if capital is None or capital not in result.members:
+        # A capital cannot fold into itself. Buftea is both Ilfov's seat and, once Bucharest
+        # shadows it, a stood-down centre, so this loop popped its member list and then
+        # appended to the key it had just removed. Nothing to do: it is already the capital.
+        if capital is None or capital == absorber or capital not in result.members:
             continue
         # Folding is subject to the distance cap like every other merge. A held centre
         # gathers up to the cap from itself, so folding it wholesale put communes twice the
@@ -982,9 +1028,17 @@ def _grow(
                 and params.p_target > 0
                 and gathered[bidder] + data.population[uat] > params.p_target
             )
+            # Near-ties collapse to one band so that size, not metres, decides them. With
+            # the band at zero every distance is its own band and this is the old ordering
+            # exactly, which is what keeps the default behaviour unchanged.
+            band = row[bidder] // params.r_tie_m if params.r_tie_m > 0 else row[bidder]
             return (
                 0 if own_ring else 1,
                 1 if overshoot else 0,
+                band,
+                # Within a band the absorber holding less takes it. This is what stops one
+                # centre reaching 60,000 while the one beside it stays at 15,000.
+                gathered[bidder] if params.r_tie_m > 0 else 0,
                 row[bidder],
                 result.seeds[bidder],
                 -data.population[bidder],
@@ -1405,6 +1459,19 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             # happens to have reached: a county capital outranks anything, then a centre
             # outranks a cluster seat, then the larger town wins. Judging by unit population
             # made Măcin (7,248) the capital of a unit containing Babadag (9,213).
+
+            # Coverage before size: a county keeps its minimum number of units even when
+            # that leaves some of them short of the target. Merging is what collapsed the
+            # count. Ilfov ended with two units and six other
+            # counties with four, because every unit under the target kept merging until it
+            # cleared it — and in a county whose population cannot support N_min units of
+            # that size, that means merging all the way down. A county of five units at
+            # 30,000 covers its ground; two units at 75,000 do not, whatever the target says.
+            # Bucharest is one city, not a county that needs a spread of units.
+            floor = 0 if county == BUCHAREST_COUNTY_CODE else params.n_min
+            if floor > 0 and _county_unit_count(data, result, county) <= floor:
+                continue
+
             keep, drop = (
                 (absorber, partner)
                 if standing(absorber) <= standing(partner)
@@ -1417,6 +1484,135 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
                 result.region_of[m] = keep
             result.orphan_regions.discard(drop)
             changed = True
+
+
+def absorb_stranded(data: Data, params: Params, result: Result) -> None:
+    """Last resort for a unit the distance cap has stranded: join the best-shaped neighbour.
+
+    `consolidate_to_target` refuses any merge that would put a commune beyond the cap,
+    measured from the seat that survives. Where every same-county neighbour fails that test
+    the unit stays exactly as it is, and on a county border that means a unit of one
+    commune: Bulzesti (1,269) sits in the corner of Dolj with four of its five neighbours in
+    Olt and Valcea, and the fifth over the cap at 57.9 km. Gradinari (2,448) misses by 500 m
+    against a 50 km cap.
+
+    A commune left administering itself for 1,269 people is a worse answer than a unit whose
+    furthest village is 58 km from its seat rather than 50. So where there is no legal
+    partner at all, the cap yields — and nothing else does. The county line still holds, the
+    county minimum still holds, and a unit with a legal partner is left to the normal pass.
+
+    **The partner is chosen by shape, not by distance.** Overriding the cap is exactly the
+    move that produces a long ragged unit, so among the candidates this takes the one whose
+    merged outline scores best on Polsby-Popper. Where only one neighbour exists the ranking
+    changes nothing and the merge happens anyway: a bad shape still beats a leftover.
+    """
+
+    def region_population(unit: str) -> int:
+        return sum(data.population[m] for m in result.members[unit])
+
+    def standing(unit: str) -> tuple[int, int, int, str]:
+        return (
+            data.admin_rank[unit],
+            result.seeds.get(unit, TIER_PROMOTED + 1),
+            -data.population[unit],
+            unit,
+        )
+
+    distance_cache: dict[str, dict[str, float]] = {}
+
+    def reach_from(seat: str) -> dict[str, float]:
+        cached = distance_cache.get(seat)
+        if cached is None:
+            cached = _county_road_distances(data, data.county[seat], [seat])
+            distance_cache[seat] = cached
+        return cached
+
+    changed = True
+    while changed:
+        changed = False
+        # Smallest first: the leftovers are what this exists for, and merging one can give
+        # the next a partner it did not have.
+        for absorber in sorted(result.members, key=lambda a: (region_population(a), a)):
+            if absorber not in result.members:
+                continue
+            # Only leftovers, not every small unit the cap has stranded.
+            if region_population(absorber) >= params.p_stranded:
+                continue
+
+            county = data.county[absorber]
+            if county == BUCHAREST_COUNTY_CODE:
+                continue
+            # The Delta is exempt from the cap, so it is not stranded by it. Every distance
+            # inside it is long and there is no shorter route; treating Oras Sulina as a
+            # leftover dissolved the whole Delta into Municipiul Tulcea, which is the outcome
+            # the Delta exception exists to prevent.
+            if all(m in DELTA_WATER_UATS for m in result.members[absorber]):
+                continue
+            # Coverage still outranks size here, exactly as in the normal pass.
+            if _county_unit_count(data, result, county) <= params.n_min:
+                continue
+
+            partners: set[str] = set()
+            for member in result.members[absorber]:
+                for neighbour in data.neighbours.get(member, ()):
+                    other = result.region_of[neighbour]
+                    if other == absorber or data.county[neighbour] != county:
+                        continue
+                    partners.add(other)
+            if not partners:
+                # Nothing adjacent inside its own county. The county line is not negotiable,
+                # so this one is genuinely alone and is reported rather than forced.
+                continue
+
+            here = reach_from(absorber)
+
+            def within_cap(other: str, this: str = absorber, this_reach=here) -> bool:
+                if params.max_road_m <= 0:
+                    return True
+                if all(m in DELTA_WATER_UATS for m in result.members[this] + result.members[other]):
+                    return True
+                keeps_seat = standing(this) <= standing(other)
+                reach = this_reach if keeps_seat else reach_from(other)
+                everyone = result.members[this] + result.members[other]
+                return all(reach.get(m, math.inf) <= params.max_road_m for m in everyone)
+
+            # Only for units the normal pass cannot help. If anything is legally reachable,
+            # this pass keeps its hands off and lets the ordinary rules decide.
+            if any(within_cap(o) for o in partners):
+                continue
+
+            # Same preference order as the normal pass: a partner still short of the target
+            # first, then any non-capital, and only then a capital. A capital is a drain of
+            # last resort, not a first choice.
+            still_small = [o for o in sorted(partners) if region_population(o) < params.p_target]
+            not_a_capital = [o for o in sorted(partners) if o not in COUNTY_CAPITAL_SIRUTA]
+            choices = still_small or not_a_capital or sorted(partners)
+
+            best = max(
+                choices,
+                key=lambda o: (
+                    compactness(data, result.members[absorber] + result.members[o]),
+                    -here.get(o, math.inf),
+                    o,
+                ),
+            )
+
+            keep, drop = (
+                (absorber, best) if standing(absorber) <= standing(best) else (best, absorber)
+            )
+            merged = result.members.pop(drop)
+            result.members[keep].extend(merged)
+            for m in merged:
+                result.region_of[m] = keep
+            result.orphan_regions.discard(drop)
+            result.last_resort[drop] = keep
+            distance_cache.pop(keep, None)
+            changed = True
+
+
+def _county_unit_count(data: Data, result: Result, county_code: str) -> int:
+    """How many units currently have their seat in this county."""
+    return sum(1 for seat in result.members if data.county[seat] == county_code)
 
 
 def clark_evans(data: Data, seeds: list[str], county_uats: list[str]) -> float | None:
@@ -1452,8 +1648,15 @@ def reseat_units(data: Data, params: Params, result: Result) -> None:
 
     A re-election has to keep the distance cap: growth enforced it against the old seat, and
     moving the seat can put members beyond it. Oras Murgeni is the case — the better town
-    administratively, but 73.7 km from members the cap allows at 50 km. Where no candidate
-    holds the cap the unit keeps the seat it grew from.
+    administratively, but 73.7 km from members the cap allows at 50 km.
+
+    **The cap breaks ties within an administrative rank; it never overrides rank.** Filtering
+    the whole field by the cap first is what produced the defect this function exists to
+    prevent: it prefers a commune that holds the cap to a town that does not, so Zorleni
+    seated a unit containing Oras Murgeni, and after the last-resort pass Gropeni (3,022)
+    seated a unit containing Municipiul Braila (154,686). A unit is named after the most
+    significant town in it; where that town cannot hold the cap, the cap is what gives, and
+    the unit is reported as over-cap rather than administered from a village.
     """
 
     def standing(unit: str) -> tuple[int, int, int, str]:
@@ -1488,8 +1691,13 @@ def reseat_units(data: Data, params: Params, result: Result) -> None:
                 if data.county[m] == county
             )
 
-        ranked = sorted(members, key=standing)
-        new_seat = next((c for c in ranked if holds_the_cap(c)), old_seat)
+        if not members:
+            continue
+        # Only the most significant rank present may seat the unit. Within it the cap
+        # decides, and if nothing there holds the cap, standing does.
+        best_rank = min(data.admin_rank[m] for m in members)
+        ranked = sorted((m for m in members if data.admin_rank[m] == best_rank), key=standing)
+        new_seat = next((c for c in ranked if holds_the_cap(c)), ranked[0])
         if new_seat == old_seat:
             continue
         result.members[new_seat] = result.members.pop(old_seat)
@@ -1780,6 +1988,18 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
         result.rebalanced += rebalance(data, params, result)
         if len(result.members) == before:
             break
+
+    # Last of all, and only on what the ordinary rules could not place. Running it earlier
+    # would let a cap-breaking merge stand where a later re-seating would have made a legal
+    # one possible.
+    absorb_stranded(data, params, result)
+    reseat_units(data, params, result)
+    # A last-resort merge changes membership like any other, so the map is rebalanced against
+    # it. Skipping this left Vernesti in Oras Pogoanele 48.7 km away while Municipiul Buzau
+    # sat 10.6 km off: it had always been misplaced, and was excused only because removing it
+    # would have dropped Pogoanele below the target. Giving Pogoanele slack made the
+    # misplacement live, and this is what corrects it.
+    result.rebalanced += rebalance(data, params, result)
     return result, summarise(data, params, result)
 
 

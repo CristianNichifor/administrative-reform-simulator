@@ -430,6 +430,15 @@ function selectSeeds(data: ModelData, params: Params): {
     for (const u of core) if (mayAbsorb(data, capital, u)) capitalReach.add(u);
   }
 
+  // A capital's own ring, across every capital that is still one. Narrower than the reach:
+  // the reach is who a capital displaces, the ring is what it holds by right, and promotion
+  // may never reach into it however short a county is.
+  const capitalRings = new Set<number>();
+  for (const capital of cores.keys()) {
+    if (tierOf[capital] === -1 || !isCapitalSeat(data, capital)) continue;
+    for (const u of capitalRing(data, params, capital)) capitalRings.add(u);
+  }
+
   const reservedFor = new Map<number, number>();
   for (const uat of [...held].sort((a, b) => a - b)) {
     const capital = shadowingCapital(data, tierOf, cores, uat);
@@ -472,13 +481,23 @@ function selectSeeds(data: ModelData, params: Params): {
     // Towns join the pool whatever their population. The threshold decides who is
     // *automatically* a centre; promotion exists to fill a county that came up short, and
     // there a town with a town hall is a better answer than a large commune.
-    const pool = uats.filter(
-      (i) =>
-        (isAbsorber[i] === 1 || data.attributes.adminRank[i]! <= ADMIN_RANK_ORAS) &&
-        tierOf[i] === -1 &&
-        !held.has(i) &&
-        !capitalReach.has(i),
-    );
+    // Ilfov is the county this exists for: a ring around Bucharest, so the centres it could
+    // promote are largely communes the city borders. Barred from those it needs the wider
+    // pool to reach five, and the widening below gives it one without touching the ring.
+    const candidates = (allowDisplaced: boolean): number[] =>
+      uats.filter(
+        (i) =>
+          (isAbsorber[i] === 1 || data.attributes.adminRank[i]! <= ADMIN_RANK_ORAS) &&
+          tierOf[i] === -1 &&
+          // Never a capital's ring, however short the county is. Promotion took
+          // Popesti-Leordeni and Voluntari off Bucharest to bring Ilfov to five; the ring is
+          // the stronger rule, so the county finds its centres elsewhere.
+          !capitalRings.has(i) &&
+          (allowDisplaced || (!held.has(i) && !capitalReach.has(i))),
+      );
+
+    let pool = candidates(false);
+    let widened = false;
 
     const covered = new Uint8Array(data.uatCount);
     for (const seed of seedsHere) {
@@ -522,6 +541,15 @@ function selectSeeds(data: ModelData, params: Params): {
           bestKey = key;
           bestIndex = candidate;
         }
+      }
+
+      if (bestIndex === -1 && !widened) {
+        // Widen before relaxing separation. Falling back only when the restricted pool is
+        // *empty* was not enough: Ilfov's was non-empty and every entry failed the
+        // separation test, so the county sat on three centres against a minimum of five.
+        widened = true;
+        pool = candidates(true);
+        continue;
       }
 
       if (bestIndex === -1) {
@@ -582,7 +610,10 @@ function accrete(
   for (const absorber of [...held].sort((a, b) => a - b)) {
     if (regionOf[absorber] !== absorber) continue;
     const capital = data.capitalOfCounty.get(data.countyOf[absorber]!);
-    if (capital === undefined || !members.has(capital)) continue;
+    // A capital cannot fold into itself. Buftea is both Ilfov's seat and, once Bucharest
+    // shadows it, a stood-down centre, so this pushed its own members onto the array it was
+    // iterating and grew it until the length was invalid. Nothing to do: it is the capital.
+    if (capital === undefined || capital === absorber || !members.has(capital)) continue;
     if (params.maxRoadM > 0) {
       const reach = countyRoadDistances(data, data.countyOf[capital]!, [capital]);
       const tooFar = (members.get(absorber) ?? [absorber]).some(
@@ -704,10 +735,19 @@ function grow(
         isCapped(bidder) &&
         params.pTarget > 0 &&
         gathered.get(bidder)! + data.population[uat]! > params.pTarget;
+      // Near-ties collapse into one band so that size, not metres, decides them. With the
+      // band at zero every distance is its own band and this is the old ordering exactly,
+      // which is what keeps the default unchanged.
+      const distance = row.get(bidder)!;
+      const band = params.rTieM > 0 ? Math.floor(distance / params.rTieM) : distance;
       return [
         ownRing ? 0 : 1,
         overshoot ? 1 : 0,
-        row.get(bidder)!,
+        band,
+        // Within a band the absorber holding less takes it: this is what stops one centre
+        // reaching 60,000 while the one beside it stays at 15,000.
+        params.rTieM > 0 ? gathered.get(bidder)! : 0,
+        distance,
         tierOf[bidder]!,
         -data.population[bidder]!,
         bidder,
@@ -961,6 +1001,153 @@ function orphanTier(
  * keeps its seat. Units can legitimately finish below target when every neighbour they have
  * lies across a county line; those are reported, never forced.
  */
+/**
+ * Last resort for a unit the distance cap has stranded: join the best-shaped neighbour.
+ *
+ * `consolidateToTarget` refuses any merge that would put a commune beyond the cap, measured
+ * from the seat that survives. Where every same-county neighbour fails that test the unit
+ * stays as it is, and on a county border that means a unit of one commune: Bulzesti (1,269)
+ * sits in the corner of Dolj with four of its five neighbours in Olt and Valcea, and the
+ * fifth over the cap at 57.9 km. Gradinari (2,448) misses by 500 m against a 50 km cap.
+ *
+ * A commune left administering itself for 1,269 people is a worse answer than a unit whose
+ * furthest village is 58 km from its seat rather than 50. So where no legal partner exists
+ * the cap yields — and nothing else does. The county line holds, the county minimum holds,
+ * and a unit with any legal partner is left to the ordinary rules.
+ *
+ * **The partner is chosen by shape.** Overriding the cap is exactly the move that produces a
+ * long ragged unit, so this takes the candidate whose merged outline scores best on
+ * Polsby-Popper. Where only one exists the ranking changes nothing and the merge happens
+ * anyway: a bad shape still beats a leftover.
+ */
+function absorbStranded(
+  data: ModelData,
+  params: Params,
+  regionOf: Uint16Array,
+  orphanSeats: Set<number>,
+  reasonOf: Uint8Array,
+  tierOf: Int8Array,
+): void {
+  const members = new Map<number, number[]>();
+  for (let i = 0; i < data.uatCount; i += 1) {
+    const region = regionOf[i]!;
+    let list = members.get(region);
+    if (!list) {
+      list = [];
+      members.set(region, list);
+    }
+    list.push(i);
+  }
+
+  const populationOf = (unit: number): number => {
+    let total = 0;
+    for (const m of members.get(unit)!) total += data.population[m]!;
+    return total;
+  };
+
+  const standingOf = (unit: number): [number, number, number, number] => [
+    data.attributes.adminRank[unit]!,
+    tierOf[unit] === -1 ? TIER_PROMOTED + 1 : tierOf[unit]!,
+    -data.population[unit]!,
+    unit,
+  ];
+  const beats = (a: number, c: number): boolean => {
+    const sa = standingOf(a);
+    const sc = standingOf(c);
+    for (let k = 0; k < 4; k += 1) if (sa[k] !== sc[k]) return sa[k]! < sc[k]!;
+    return false;
+  };
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    // Smallest first: the leftovers are what this exists for, and merging one can give the
+    // next a partner it did not have.
+    const order = [...members.keys()].sort((a, c) => populationOf(a) - populationOf(c) || a - c);
+    for (const absorber of order) {
+      if (!members.has(absorber)) continue;
+      // Only leftovers, not every small unit the cap has stranded.
+      if (populationOf(absorber) >= params.pStranded) continue;
+
+      const county = data.countyOf[absorber]!;
+      if (county === data.bucharestCounty) continue;
+      // The Delta is exempt from the cap, so it is not stranded by it. Every distance inside
+      // it is long and there is no shorter route; treating Oras Sulina as a leftover
+      // dissolved the whole Delta into Municipiul Tulcea, which is what the exception exists
+      // to prevent.
+      if (members.get(absorber)!.every((m) => data.attributes.deltaWater[m])) continue;
+      // Coverage still outranks size here, exactly as in the ordinary pass.
+      if (countyUnitCount(data, members, county) <= params.nMin) continue;
+
+      const partners = new Set<number>();
+      for (const member of members.get(absorber)!) {
+        for (let e = data.neighbourStart[member]!; e < data.neighbourStart[member + 1]!; e += 1) {
+          const nb = data.neighbours[e]!;
+          const other = regionOf[nb]!;
+          if (other === absorber || data.countyOf[nb] !== county) continue;
+          partners.add(other);
+        }
+      }
+      // Nothing adjacent inside its own county. The county line is not negotiable, so this
+      // one is genuinely alone and is reported rather than forced.
+      if (partners.size === 0) continue;
+
+      const here = countyRoadDistances(data, county, [absorber]);
+      const withinCap = (other: number): boolean => {
+        if (params.maxRoadM <= 0) return true;
+        const everyone = members.get(absorber)!.concat(members.get(other)!);
+        if (everyone.every((m) => data.attributes.deltaWater[m])) return true;
+        const keepsSeat = !beats(other, absorber);
+        const reach = keepsSeat ? here : countyRoadDistances(data, county, [other]);
+        return everyone.every((m) => (reach.get(m) ?? Infinity) <= params.maxRoadM);
+      };
+      // Only for units the ordinary pass cannot help. If anything is legally reachable this
+      // keeps its hands off — otherwise Oras Seini is dissolved into Municipiul Baia Mare,
+      // the capital-as-drain failure the consolidation rules exist to prevent.
+      if ([...partners].some((o) => withinCap(o))) continue;
+
+      // Same preference order as the ordinary pass: a partner still short of the target
+      // first, then any non-capital, and only then a capital.
+      const sorted = [...partners].sort((a, c) => a - c);
+      const stillSmall = sorted.filter((o) => populationOf(o) < params.pTarget);
+      const notACapital = sorted.filter((o) => !data.attributes.isCapital[o]);
+      const choices = stillSmall.length > 0 ? stillSmall : notACapital.length > 0 ? notACapital : sorted;
+
+      let best = choices[0]!;
+      let bestShape = compactness(data, members.get(absorber)!.concat(members.get(best)!));
+      for (const candidate of choices.slice(1)) {
+        const shape = compactness(data, members.get(absorber)!.concat(members.get(candidate)!));
+        const dc = -(here.get(candidate) ?? Infinity);
+        const db = -(here.get(best) ?? Infinity);
+        if (shape > bestShape || (shape === bestShape && (dc > db || (dc === db && candidate > best)))) {
+          best = candidate;
+          bestShape = shape;
+        }
+      }
+
+      const keep = beats(absorber, best) ? absorber : best;
+      const drop = keep === absorber ? best : absorber;
+      const moved = members.get(drop)!;
+      members.delete(drop);
+      const target = members.get(keep)!;
+      for (const m of moved) {
+        target.push(m);
+        regionOf[m] = keep;
+        reasonOf[m] = REASON.TARGET_MERGED;
+      }
+      orphanSeats.delete(drop);
+      changed = true;
+    }
+  }
+}
+
+/** How many units currently have their seat in this county. */
+function countyUnitCount(data: ModelData, members: Map<number, number[]>, county: number): number {
+  let n = 0;
+  for (const seat of members.keys()) if (data.countyOf[seat] === county) n += 1;
+  return n;
+}
+
 function consolidateToTarget(
   data: ModelData,
   params: Params,
@@ -1091,6 +1278,17 @@ function consolidateToTarget(
           }
         }
 
+        // Coverage before size: a county keeps its minimum number of units even when that
+        // leaves some of them short of the target. Merging is what collapsed the count —
+        // Ilfov ended with two units and six other counties with four, because every unit
+        // under the target kept merging until it cleared it, and in a county whose
+        // population cannot support nMin units of that size that means merging all the way
+        // down. Five units at 30,000 cover their ground; two at 75,000 do not.
+        // Bucharest is one city, not a county that needs a spread of units.
+        if (county !== data.bucharestCounty && countyUnitCount(data, members, county) <= params.nMin) {
+          continue;
+        }
+
         // Which seat survives is about the standing of the town, not the size its unit
         // happens to have reached.
         const keep = beats(region, partner) ? region : partner;
@@ -1180,7 +1378,13 @@ function reseatUnits(
       );
     };
     const ranked = [...list].sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0));
-    const newSeat = ranked.find((c) => holdsTheCap(c)) ?? oldSeat;
+    // Only the most significant rank present may seat the unit; within it the cap decides,
+    // and if nothing there holds the cap, standing does. Filtering the whole field by the
+    // cap first preferred a commune that held it to a town that did not, so Gropeni (3,022)
+    // seated a unit containing Municipiul Braila (154,686).
+    const bestRank = Math.min(...ranked.map((m) => data.attributes.adminRank[m]!));
+    const eligible = ranked.filter((m) => data.attributes.adminRank[m] === bestRank);
+    const newSeat = eligible.find((c) => holdsTheCap(c)) ?? eligible[0] ?? oldSeat;
     if (newSeat === oldSeat) continue;
     for (const m of list) regionOf[m] = newSeat;
     if (orphanSeats.delete(oldSeat)) orphanSeats.add(newSeat);
@@ -1630,6 +1834,16 @@ export function runModel(data: ModelData, params: Params, pins: Pin[] = []): Mod
     for (let i = 0; i < data.uatCount; i += 1) after.add(regionOf[i]!);
     if (after.size === before.size) break;
   }
+
+  // Last of all, and only on what the ordinary rules could not place. Running it earlier
+  // would let a cap-breaking merge stand where a later re-seating made a legal one possible.
+  absorbStranded(data, params, regionOf, orphanSeats, reasonOf, tierOf);
+  reseatUnits(data, params, regionOf, tierOf, orphanSeats);
+  // A last-resort merge changes membership like any other, so the map is rebalanced against
+  // it. Skipping this left Vernesti in Oras Pogoanele 48.7 km away while Municipiul Buzau sat
+  // 10.6 km off: it had always been misplaced, and was excused only because removing it would
+  // have dropped Pogoanele below the target.
+  rebalance(data, params, regionOf);
 
   // Counted from the finished map, not taken from the last consolidation pass. Rebalancing
   // runs after that pass and moves communes between units, so the figure it returned is
