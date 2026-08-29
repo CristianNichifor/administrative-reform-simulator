@@ -96,7 +96,7 @@ MIN_COMPACTNESS_DEFAULT: Final = 0.0
 # and 4.4 km from another is, to anyone living there, the same distance from both. Letting
 # size decide inside that band is what stops one centre reaching 60,000 beside one at 15,000.
 # Zero restores the old ordering exactly, so the default changes no result.
-R_TIE_DEFAULT_M: Final = 0
+R_TIE_DEFAULT_M: Final = 3_000
 
 # A unit below this, with no partner the distance cap allows, is a leftover rather than a
 # small unit, and the last-resort pass may break the cap to place it. Above it a unit that

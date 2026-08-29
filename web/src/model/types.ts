@@ -66,7 +66,7 @@ export const DEFAULT_PARAMS: Params = {
   pTarget: 50_000,
   maxRoadM: 50_000,
   minCompactness: 0,
-  rTieM: 0,
+  rTieM: 3_000,
   pStranded: 15_000,
 };
 

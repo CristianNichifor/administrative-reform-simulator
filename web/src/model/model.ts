@@ -1141,6 +1141,113 @@ function absorbStranded(
   }
 }
 
+/**
+ * Hand a commune to a near-equally-distant neighbouring unit that is carrying less.
+ *
+ * Pantelimon (CT) is the case. It is 44.5 km from Municipiul Medgidia and 45.8 km from Oras
+ * Harsova, and `rebalance` asks only whether another seat is *strictly* nearer, so 1.3 km
+ * kept it in Medgidia — 109,471 people over 1,752 km2 — instead of Harsova, 23,290 over 828.
+ * Nothing before this point ever compared the two from Pantelimon: its own unit merged into
+ * Medgidia as a whole, judged from a seat 43 km closer to Medgidia than to Harsova.
+ *
+ * **Separate from `rebalance`, and after it.** The two converge on different quantities —
+ * rebalance lowers each commune's distance to its seat, this lowers the spread between
+ * units — and interleaved they cycle: run together, 650 communes ping-ponged every sweep and
+ * the map became whatever the eighth sweep left. Alone this terminates, because moving a
+ * commune of `c` from H to T changes the sum of squared unit populations by 2c(T - H) + 2c^2,
+ * negative exactly when T + c < H, which is the condition below.
+ */
+function equalise(data: ModelData, params: Params, regionOf: Uint16Array): number {
+  if (params.rTieM <= 0) return 0;
+
+  let movedTotal = 0;
+  for (let sweep = 0; sweep < REBALANCE_SWEEPS; sweep += 1) {
+    const members = new Map<number, number[]>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const region = regionOf[i]!;
+      let list = members.get(region);
+      if (!list) {
+        list = [];
+        members.set(region, list);
+      }
+      list.push(i);
+    }
+    const populationOf = (unit: number): number => {
+      let total = 0;
+      for (const m of members.get(unit)!) total += data.population[m]!;
+      return total;
+    };
+    const areaOf = (unit: number): number => {
+      let total = 0;
+      for (const m of members.get(unit)!) total += data.areaKm2[m]!;
+      return total;
+    };
+
+    let moved = 0;
+    for (let siruta = 0; siruta < data.uatCount; siruta += 1) {
+      const here = regionOf[siruta]!;
+      if (here === siruta) continue;
+      // A capital holds the ring around it; that is not up for rebalancing.
+      if (isCapitalSeat(data, here) && capitalRing(data, params, here).has(siruta)) continue;
+      // And no centre gives up a commune on its own border. Balance is worth moving a
+      // commune that happens to sit in one unit rather than another; it is not worth taking
+      // a village off the town it adjoins — Oras Viseu de Sus lost Sacel, which it borders,
+      // to Oras Borsa purely because Borsa was carrying less.
+      let touchesOwnSeat = false;
+      for (let e = data.neighbourStart[here]!; e < data.neighbourStart[here + 1]!; e += 1) {
+        if (data.neighbours[e] === siruta) {
+          touchesOwnSeat = true;
+          break;
+        }
+      }
+      if (touchesOwnSeat) continue;
+
+      const hereDistance = countyRoadDistances(data, data.countyOf[here]!, [here]).get(siruta);
+      if (hereDistance === undefined || !Number.isFinite(hereDistance)) continue;
+
+      let best: number[] | null = null;
+      for (let e = data.neighbourStart[siruta]!; e < data.neighbourStart[siruta + 1]!; e += 1) {
+        const there = regionOf[data.neighbours[e]!]!;
+        if (there === here || !mayAbsorb(data, there, siruta)) continue;
+        // Never grow a capital past its ring by this route either.
+        if (isCapitalSeat(data, there) && !capitalRing(data, params, there).has(siruta)) continue;
+        const thereDistance = countyRoadDistances(data, data.countyOf[there]!, [there]).get(siruta);
+        if (thereDistance === undefined || !Number.isFinite(thereDistance)) continue;
+        if (thereDistance > hereDistance + params.rTieM) continue;
+        if (params.maxRoadM > 0 && thereDistance > params.maxRoadM) continue;
+        // The move must strictly close the gap. This is both the point of the pass and the
+        // reason it terminates.
+        if (populationOf(there) + data.population[siruta]! >= populationOf(here)) continue;
+        const key = [populationOf(there), areaOf(there), thereDistance, there];
+        if (best === null || lessThan(key, best)) best = key;
+      }
+      if (best === null) continue;
+      const targetUnit = best[best.length - 1]!;
+
+      const list = members.get(here)!;
+      const remaining = list.filter((m) => m !== siruta);
+      if (remaining.length === 0 || !isConnected(data, remaining)) continue;
+      if (params.pTarget > 0) {
+        const before = populationOf(here);
+        if (before >= params.pTarget && before - data.population[siruta]! < params.pTarget) {
+          continue;
+        }
+      }
+      if (!shapeAllows(data, params, list, remaining)) continue;
+      const targetList = members.get(targetUnit)!;
+      if (!shapeAllows(data, params, targetList, targetList.concat([siruta]))) continue;
+
+      members.set(here, remaining);
+      targetList.push(siruta);
+      regionOf[siruta] = targetUnit;
+      moved += 1;
+    }
+    movedTotal += moved;
+    if (moved === 0) break;
+  }
+  return movedTotal;
+}
+
 /** How many units currently have their seat in this county. */
 function countyUnitCount(data: ModelData, members: Map<number, number[]>, county: number): number {
   let n = 0;
@@ -1269,12 +1376,26 @@ function consolidateToTarget(
         const notACapital = reachable.filter((o) => !data.attributes.isCapital[o]);
         const choices = (stillSmall.length > 0 ? stillSmall : notACapital).sort((a, b) => a - b);
         if (choices.length === 0) continue;
+        // Near-equal distances are decided by size, not by metres: within the band the
+        // emptier unit takes it, population first because that is what the target is about,
+        // then area, because a unit that is already vast should stop growing.
+        const areaOf = (unit: number): number => {
+          let total = 0;
+          for (const m of members.get(unit)!) total += data.areaKm2[m]!;
+          return total;
+        };
+        const mergeRank = (unit: number): number[] => {
+          const metres = distances.get(unit) ?? Infinity;
+          const band = params.rTieM > 0 ? Math.floor(metres / params.rTieM) : metres;
+          return [band, populationOf(unit), areaOf(unit), metres, unit];
+        };
         let partner = choices[0]!;
-        for (const candidate of choices) {
-          const dc = distances.get(candidate) ?? Infinity;
-          const dp = distances.get(partner) ?? Infinity;
-          if (dc < dp || (dc === dp && populationOf(candidate) < populationOf(partner))) {
+        let partnerKey = mergeRank(partner);
+        for (const candidate of choices.slice(1)) {
+          const key = mergeRank(candidate);
+          if (lessThan(key, partnerKey)) {
             partner = candidate;
+            partnerKey = key;
           }
         }
 
@@ -1501,6 +1622,7 @@ export function mergeBlocker(
 ):
   | { kind: 'no-county-neighbour' }
   | { kind: 'capital-only' }
+  | { kind: 'county-minimum'; units: number }
   | { kind: 'cap'; metres: number }
   | null {
   const unitSeat = seat;
@@ -1523,6 +1645,21 @@ export function mergeBlocker(
   // A capital is finished once it has taken its ring, so it is not a partner. A unit whose
   // only neighbours are capitals has nowhere to go regardless of distance.
   if ([...partners].every((p) => data.attributes.isCapital[p])) return { kind: 'capital-only' };
+
+  // Coverage outranks size: a county already down to its minimum may not merge at all,
+  // whatever the distances are. Snagov is the case — Ilfov holds exactly five units once
+  // Bucharest has taken its ring and the border strip beyond it, so Snagov stays a unit of
+  // one commune and no distance explains it. Checked *after* the two reasons above, which
+  // are more fundamental: a unit with no neighbour at all is not being held back by a floor.
+  const county = data.countyOf[seat]!;
+  if (county !== data.bucharestCounty) {
+    const seats = new Set<number>();
+    for (let i = 0; i < data.uatCount; i += 1) {
+      const unit = regionOf[i]!;
+      if (data.countyOf[unit] === county) seats.add(unit);
+    }
+    if (seats.size <= params.nMin) return { kind: 'county-minimum', units: seats.size };
+  }
   if (params.maxRoadM <= 0) return null;
 
   // The cheapest merge available, measured the way consolidation measures it: every member
@@ -1562,6 +1699,9 @@ export function mergeBlocker(
 
 const REBALANCE_SWEEPS = 8;
 const SETTLE_ROUNDS = 6;
+// Rounds of equalising paired with re-seating. Each round is convergent on its own; this
+// only bounds the settling between the two.
+const EQUALISE_ROUNDS = 4;
 
 /** Whether a set of communes forms one piece over the road-connected graph. */
 /**
@@ -1619,22 +1759,85 @@ function isCapitalSeat(data: ModelData, unit: number): boolean {
  * that all had another unit adjacent and none of which were stranded, so the city grew a
  * uniform second ring instead of reaching only where it was needed.
  */
+/**
+ * Second-layer communes that sit against a county line.
+ *
+ * A commune one step beyond the capital's ring that touches a county the capital's own
+ * territory does not span. `touching` rather than `neighbours` on purpose: whether a county
+ * line runs along your edge is a question about the border, not about whether a road crosses
+ * it. `home` must include the ring's counties — for Bucharest that is Ilfov as well as B, and
+ * taking only the capital's own county made every Ilfov neighbour read as "across a county
+ * line", which admitted the whole second layer: the city went to 37 communes and Ilfov fell
+ * to four units, the uniform second ring this is meant not to be.
+ */
+function borderSecondLayer(
+  data: ModelData,
+  unit: number,
+  ring: Set<number>,
+  core: Set<number>,
+): Set<number> {
+  const home = new Set<number>([data.countyOf[unit]!]);
+  for (const c of core) home.add(data.countyOf[c]!);
+  for (const m of ring) home.add(data.countyOf[m]!);
+
+  const out = new Set<number>();
+  for (const member of ring) {
+    for (let e = data.neighbourStart[member]!; e < data.neighbourStart[member + 1]!; e += 1) {
+      const candidate = data.neighbours[e]!;
+      if (ring.has(candidate) || core.has(candidate)) continue;
+      if (!mayAbsorb(data, unit, candidate)) continue;
+      for (let t = data.touchStart[candidate]!; t < data.touchStart[candidate + 1]!; t += 1) {
+        if (!home.has(data.countyOf[data.touching[t]!]!)) {
+          out.add(candidate);
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+const capitalRingCache = new WeakMap<ModelData, Map<string, Set<number>>>();
+
+/**
+ * Memoised: `equalise` asks this for every commune on every sweep, and rebuilding the ring
+ * each time — which walks the second layer and its shared borders — cost enough to put the
+ * recompute over its 150 ms budget on its own.
+ */
 function capitalRing(data: ModelData, params: Params, unit: number): Set<number> {
+  let byKey = capitalRingCache.get(data);
+  if (!byKey) {
+    byKey = new Map();
+    capitalRingCache.set(data, byKey);
+  }
+  const key = `${unit}:${params.rCapM}`;
+  const hit = byKey.get(key);
+  if (hit) return hit;
+  const out = capitalRingUncached(data, params, unit);
+  byKey.set(key, out);
+  return out;
+}
+
+function capitalRingUncached(data: ModelData, params: Params, unit: number): Set<number> {
   const out = new Set<number>();
   if (data.countyOf[unit] === data.bucharestCounty) {
+    const core = new Set<number>(data.bucharestSectors);
     for (const sector of data.bucharestSectors) {
       for (let e = data.neighbourStart[sector]!; e < data.neighbourStart[sector + 1]!; e += 1) {
         const nb = data.neighbours[e]!;
         if (mayAbsorb(data, unit, nb)) out.add(nb);
       }
     }
+    for (const nb of borderSecondLayer(data, unit, out, core)) out.add(nb);
     return out;
   }
   for (let e = data.neighbourStart[unit]!; e < data.neighbourStart[unit + 1]!; e += 1) {
     const nb = data.neighbours[e]!;
     if (mayAbsorb(data, unit, nb)) out.add(nb);
   }
+  const border = borderSecondLayer(data, unit, out, new Set([unit]));
   for (const nb of capitalReach(data, params, unit)) out.add(nb);
+  for (const nb of border) out.add(nb);
   return out;
 }
 
@@ -1844,6 +2047,15 @@ export function runModel(data: ModelData, params: Params, pins: Pin[] = []): Mod
   // 10.6 km off: it had always been misplaced, and was excused only because removing it would
   // have dropped Pogoanele below the target.
   rebalance(data, params, regionOf);
+
+  // Last, and never before rebalance, which asks only whether a seat is strictly nearer and
+  // would hand Pantelimon straight back to Medgidia. Paired with re-seating because moving
+  // communes can give a unit a more significant town than its seat, and moving the seat
+  // changes the distances this pass measured.
+  for (let round = 0; round < EQUALISE_ROUNDS; round += 1) {
+    if (equalise(data, params, regionOf) === 0) break;
+    reseatUnits(data, params, regionOf, tierOf, orphanSeats);
+  }
 
   // Counted from the finished map, not taken from the last consolidation pass. Rebalancing
   // runs after that pass and moves communes between units, so the figure it returned is

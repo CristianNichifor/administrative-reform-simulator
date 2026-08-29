@@ -241,22 +241,33 @@ describe('pins accumulate', () => {
 });
 
 describe('why a unit could not merge', () => {
-  it('leaves no single-commune unit at all under the default parameters', () => {
-    // What this file used to assert was that every unit left alone had a stated reason.
-    // The last-resort pass removed the phenomenon: no unit is a single commune any more,
-    // because one that the cap had stranded now breaks the cap rather than stand alone.
-    // The reasons below are still needed — the pass is a parameter, and turning it off
-    // brings the leftovers back — but at the default there is nothing left to explain.
+  it('leaves no tiny leftover, and explains any commune left on its own', () => {
+    // The last-resort pass removed the tiny leftovers: nothing finishes under 5,000, because
+    // a unit the cap had stranded now breaks the cap rather than stand alone.
+    //
+    // A single-commune unit can still survive, and Snagov does: once Bucharest has taken its
+    // ring and the border strip beyond it, Ilfov holds exactly its minimum of five units, so
+    // no further merge is allowed there at any distance. What must hold is that such a unit
+    // is never unexplained — the audit has to be able to say why.
     const result = runModel(data, DEFAULT_PARAMS);
     const count = new Map<number, number>();
+    const population = new Map<number, number>();
     for (let i = 0; i < data.uatCount; i += 1) {
       const seat = result.regionOf[i]!;
       count.set(seat, (count.get(seat) ?? 0) + 1);
+      population.set(seat, (population.get(seat) ?? 0) + data.population[i]!);
     }
-    const alone = [...count]
-      .filter(([, n]) => n === 1)
+    const tiny = [...population]
+      .filter(([, pop]) => pop < 5_000)
       .map(([seat]) => data.attributes.name[seat]!);
-    expect(alone).toEqual([]);
+    expect(tiny).toEqual([]);
+
+    for (const [seat, n] of count) {
+      if (n !== 1) continue;
+      if (population.get(seat)! >= DEFAULT_PARAMS.pTarget) continue;
+      const blocker = mergeBlocker(data, DEFAULT_PARAMS, result.regionOf, seat);
+      expect(blocker, `${data.attributes.name[seat]} is alone for no stated reason`).not.toBeNull();
+    }
   });
 
   it('separates the county-stranded from the merely distant', () => {
@@ -276,6 +287,7 @@ describe('why a unit could not merge', () => {
     const byKind: Record<string, string[]> = {
       'no-county-neighbour': [],
       'capital-only': [],
+      'county-minimum': [],
       cap: [],
     };
     for (const seat of singles) {

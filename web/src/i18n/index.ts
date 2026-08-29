@@ -128,6 +128,7 @@ export interface Strings {
   auditWhyCounty: string;
   auditWhyCap: string;
   auditWhyCapitalOnly: string;
+  auditWhyCountyMinimum: string;
   balanceSurplus: string;
   balanceDeficit: string;
   perResident: string;
@@ -274,6 +275,7 @@ const ro: Strings = {
   auditWhyCounty: 'niciun vecin pe drum în propriul județ — regula județului îi interzice orice fuziune',
   auditWhyCap: 'cea mai apropiată fuziune ar fi la {km} km, peste plafonul de {cap} km',
   auditWhyCapitalOnly: 'singurii vecini sunt reședințe de județ, iar o reședință se oprește după primul inel',
+  auditWhyCountyMinimum: 'județul are deja minimul de {units} unități, iar acoperirea are prioritate față de mărime',
   balanceSurplus: 'Excedent',
   balanceDeficit: 'Deficit',
   perResident: '/ locuitor',
@@ -420,6 +422,7 @@ const en: Strings = {
   auditWhyCounty: 'no road neighbour in its own county — the county rule forbids every merge',
   auditWhyCap: 'nearest merge would be {km} km, past the {cap} km cap',
   auditWhyCapitalOnly: 'its only neighbours are county capitals, and a capital stops after its first ring',
+  auditWhyCountyMinimum: 'the county is already down to its minimum of {units} units, and coverage outranks size',
   balanceSurplus: 'Surplus',
   balanceDeficit: 'Deficit',
   perResident: '/ resident',

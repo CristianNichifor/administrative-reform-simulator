@@ -19,6 +19,7 @@ from pipeline.reference_model import (
     _county_capital,
     _county_road_distances,
     _is_connected,
+    equalise,
     load_data,
     run,
 )
@@ -42,7 +43,7 @@ pytestmark = pytest.mark.skipif(
 # 682 while conflicts were resolved by processing order; 658 once a commune joined the
 # centre nearest by road; 749 once the threshold dropped to 7,500 and the minimum-centres
 # fallback stopped promoting communes that had a real centre next door.
-SNAPSHOT_DEFAULT_REGIONS = 251
+SNAPSHOT_DEFAULT_REGIONS = 249
 SNAPSHOT_DEFAULT_UATS = 3186
 
 
@@ -583,6 +584,44 @@ class TestLastResort:
         assert data.name[keeper] == "ORAȘ MOLDOVA NOUĂ", data.name[keeper]
 
 
+class TestEqualise:
+    """Near-equal distances are decided by what each unit already carries.
+
+    `rebalance` asks only whether another seat is *strictly* nearer, so a metre decides a
+    commune that is effectively equidistant from two units. That is a precision the road
+    data does not have and a distinction nobody living there could act on, while the
+    difference in what the two units carry is the whole question.
+    """
+
+    def test_pantelimon_goes_to_the_emptier_of_two_equally_distant_units(self, data) -> None:
+        params = Params()
+        result, _ = run(data, params)
+        pantelimon = next(
+            s for s in data.population if data.name[s] == "PANTELIMON" and data.county[s] == "CT"
+        )
+        seat = result.region_of[pantelimon]
+        # 44.5 km to Municipiul Medgidia, 45.8 km to Oras Harsova — 1.3 km apart, and
+        # Medgidia carries 109,471 over 1,752 km2 against Harsova's 23,290 over 828.
+        assert data.name[seat] == "ORAȘ HÂRȘOVA", data.name[seat]
+
+    def test_it_settles(self, data) -> None:
+        """No cycles: running it again on its own output must move nothing.
+
+        Merged into `rebalance` it did cycle. The two converge on different quantities —
+        rebalance lowers each commune's distance to its seat, this lowers the spread between
+        units — and interleaved they undid each other, 650 communes moving on every sweep
+        with the map decided by wherever the sweep cap fell.
+        """
+        params = Params()
+        result, _ = run(data, params)
+        assert result.equalised > 0, "the pass did nothing, so this proves nothing"
+        assert equalise(data, params, result) == 0
+
+    def test_the_band_off_leaves_the_map_alone(self, data) -> None:
+        result, _ = run(data, Params(r_tie_m=0))
+        assert result.equalised == 0
+
+
 class TestSeating:
     def test_a_unit_is_never_seated_below_a_member_in_rank(self, data) -> None:
         """A unit is named after the most significant town in it, always.
@@ -674,13 +713,13 @@ class TestFirstRing:
         missing = sorted(data.name[x] for x in ring - set(result.members[city]))
         assert missing == []
 
-    def test_bucharest_reaches_past_its_ring_only_where_nothing_else_can(
-        self, data, default_run
-    ) -> None:
-        """Extension is directional, not a uniform second ring.
+    def test_bucharest_reaches_past_its_ring_to_the_county_line(self, data, default_run) -> None:
+        """Extension is the second layer where it meets the county border, and no further.
 
-        The city may take a commune beyond its ring, but only one that has nowhere else to
-        go — its neighbours all in another county, which the county rule forbids it joining.
+        The city takes its whole first ring, and then the communes one step beyond it that
+        touch another county — the strip between the ring and the edge of Ilfov, which has
+        nowhere else to go once the ring is taken. What it must *not* become is a uniform
+        second ring: a commune two steps out with no county line on its edge stays outside.
         """
         result, _ = default_run
         sectors = {s for s in data.population if data.county[s] == "B"}
@@ -688,16 +727,41 @@ class TestFirstRing:
         ring = {
             neighbour for sector in sectors for neighbour in data.neighbours.get(sector, ())
         } - sectors
-        unjustified: list[str] = []
-        for member in sorted(set(result.members[city]) - ring - sectors):
-            takers = {
-                result.region_of[n]
-                for n in data.neighbours.get(member, ())
-                if data.county[n] == data.county[member]
-            } - {city}
-            if takers:
-                unjustified.append(data.name[member])
-        assert unjustified == []
+        held = set(result.members[city])
+        assert ring <= held, [data.name[s] for s in sorted(ring - held)]
+
+        # Every second-layer commune touching a third county must be held. Derived here
+        # rather than read back from the model, so the test states the rule instead of
+        # echoing the implementation.
+        second_layer = {
+            candidate
+            for member in ring
+            for candidate in data.neighbours.get(member, ())
+            # Ilfov only: the second layer also reaches into Giurgiu and Dambovita, and the
+            # county rule forbids the city taking those however close they are.
+            if candidate not in ring and candidate not in sectors and data.county[candidate] == "IF"
+        }
+        on_the_border = {
+            candidate
+            for candidate in second_layer
+            if any(
+                data.county[other] not in ("IF", "B") for other in data.touching.get(candidate, ())
+            )
+        }
+        assert on_the_border, "no second-layer commune reaches the county line here"
+        missing = sorted(on_the_border - held)
+        assert missing == [], [data.name[s] for s in missing]
+
+        # And it stops there: nothing two steps out with no county line on its edge.
+        strays = [
+            data.name[member]
+            for member in sorted(held - ring - sectors)
+            if member not in on_the_border
+            and not any(
+                data.county[other] not in ("IF", "B") for other in data.touching.get(member, ())
+            )
+        ]
+        assert strays == [], strays
 
     def test_every_centre_keeps_its_own_neighbours(self, data, default_run) -> None:
         """Or loses them for one of four stated reasons, never for none."""

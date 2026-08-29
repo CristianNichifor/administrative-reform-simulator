@@ -784,7 +784,9 @@ async function boot(): Promise<void> {
             ? strings.auditWhyCounty
             : blocker.kind === 'capital-only'
               ? strings.auditWhyCapitalOnly
-              : strings.auditWhyCap
+              : blocker.kind === 'county-minimum'
+                ? strings.auditWhyCountyMinimum.replace('{units}', String(blocker.units))
+                : strings.auditWhyCap
                   .replace('{km}', (blocker.metres / 1000).toFixed(1))
                   .replace('{cap}', String(Math.round(scenario.params.maxRoadM / 1000)));
       }

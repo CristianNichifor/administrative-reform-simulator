@@ -157,6 +157,8 @@ class Result:
     # How many communes the rebalancing pass moved to a nearer seat.
     rebalanced: int = 0
     relaxed_counties: dict[str, float] = field(default_factory=dict)
+    # How many communes the equalising pass handed to a less-loaded neighbour.
+    equalised: int = 0
     # Units the cap had stranded, and the unit each was finally merged into.
     last_resort: dict[str, str] = field(default_factory=dict)
 
@@ -705,26 +707,61 @@ def capital_ring(data: Data, params: Params, unit: str) -> set[str]:
     resedinta de judet, its radius by road, because Calarasi sits on the Danube with three
     land neighbours and would otherwise be unable to take Roseti 9.9 km away.
 
-    Deliberately *not* the candidacy set. Protecting that instead shielded 17 communes around
-    Bucharest that all had another unit adjacent and none of which were stranded: the city
-    grew a uniform second ring rather than reaching only where it was needed. Anything past
-    what a capital holds by right has to earn its place by being nearer to this seat than to
-    any other, which the rebalancing pass decides.
+    Plus the second layer *where it reaches the county border*. Between the capital's ring
+    and the edge of the county there is often only one commune deep, and a strip one commune
+    deep with a county line on the far side has nowhere to go: it cannot join the next county,
+    and what is left of it after the ring is taken is too little to be a unit. Those go to the
+    capital, which is what makes the metropolitan area reach the border rather than stop one
+    commune short of it and strand the remainder.
+
+    Deliberately *not* the whole second layer, and not the candidacy set. Protecting that
+    instead shielded 17 communes around Bucharest that all had another unit adjacent and none
+    of which were stranded: the city grew a uniform second ring rather than reaching only
+    where it was needed. Anything past what a capital holds by right has to earn its place by
+    being nearer to this seat than to any other, which the rebalancing pass decides.
     """
+    if data.county[unit] == BUCHAREST_COUNTY_CODE:
+        sectors = {s for s in data.population if data.county[s] == BUCHAREST_COUNTY_CODE}
+        ring = {
+            neighbour
+            for sector in sectors
+            for neighbour in data.neighbours.get(sector, ())
+            if _may_absorb(data, unit, neighbour)
+        }
+        return ring | _border_second_layer(data, unit, ring, sectors)
+
     ring = {
         neighbour
         for neighbour in data.neighbours.get(unit, ())
         if _may_absorb(data, unit, neighbour)
     }
-    if data.county[unit] == BUCHAREST_COUNTY_CODE:
-        return {
-            neighbour
-            for sector in data.population
-            if data.county[sector] == BUCHAREST_COUNTY_CODE
-            for neighbour in data.neighbours.get(sector, ())
-            if _may_absorb(data, unit, neighbour)
-        }
-    return ring | capital_reach(data, params, unit)
+    return ring | capital_reach(data, params, unit) | _border_second_layer(data, unit, ring, {unit})
+
+
+def _border_second_layer(data: Data, unit: str, ring: set[str], core: set[str]) -> set[str]:
+    """Second-layer communes that sit against a county line.
+
+    A commune one step beyond the capital's ring, in the same county, that touches a
+    different county. `touching` rather than `neighbours` on purpose: whether a county line
+    runs along your edge is a question about the border itself, not about whether a road
+    happens to cross it.
+    """
+    # The counties this capital's own territory spans, ring included — for Bucharest that is
+    # B *and* Ilfov, since its whole ring is in Ilfov. Taking only the capital's own county
+    # made every Ilfov neighbour read as "across a county line", which admitted the entire
+    # second layer: the city went to 37 communes and Ilfov fell to four units, which is the
+    # uniform second ring this is supposed not to be.
+    home = {data.county[c] for c in core} | {data.county[m] for m in ring} | {data.county[unit]}
+    out: set[str] = set()
+    for member in ring:
+        for candidate in data.neighbours.get(member, ()):
+            if candidate in ring or candidate in core:
+                continue
+            if not _may_absorb(data, unit, candidate):
+                continue
+            if any(data.county[other] not in home for other in data.touching.get(candidate, ())):
+                out.add(candidate)
+    return out
 
 
 def capital_reach(data: Data, params: Params, capital: str) -> set[str]:
@@ -857,6 +894,9 @@ def _shadowing_capital(data: Data, params: Params, result: Result, siruta: str) 
 _DATA_BY_ID: dict[int, Data] = {}
 
 _REBALANCE_SWEEPS = 8
+# Rounds of equalising paired with re-seating. Each round is itself convergent; this only
+# bounds the settling between the two.
+_EQUALISE_ROUNDS = 4
 
 # How many times re-seating and consolidation may take turns before the map is called
 # settled. Two or three is normal; the limit is a guard, not a knob.
@@ -1450,10 +1490,29 @@ def consolidate_to_target(data: Data, params: Params, result: Result) -> None:
             choices = still_small or not_a_capital
             if not choices:
                 continue
-            partner = min(
-                choices,
-                key=lambda o: (here.get(o, math.inf), region_population(o), o),
-            )
+
+            # Near-equal distances are decided by size, not by metres.
+            #
+            # Pantelimon (CT) is the case: 45.8 km from Oras Harsova and 44.5 km from
+            # Municipiul Medgidia, so raw distance sent it to Medgidia — a unit of 109,471
+            # over 1,752 km2 — rather than to Harsova, 23,290 over 828 km2. A difference of
+            # 1.3 km is inside the error of any road measurement and means nothing to anyone
+            # living there, while the difference in what the two units already carry is the
+            # whole question. Within the band the emptier unit takes it: population first,
+            # since that is what the target is about, then area, because a unit that is
+            # already vast is the one that should stop growing.
+            def merge_rank(o: str, this_reach: dict[str, float] = here) -> tuple:
+                metres = this_reach.get(o, math.inf)
+                band = metres // params.r_tie_m if params.r_tie_m > 0 else metres
+                return (
+                    band,
+                    region_population(o),
+                    sum(data.area_km2.get(m, 0.0) for m in result.members[o]),
+                    metres,
+                    o,
+                )
+
+            partner = min(choices, key=merge_rank)
 
             # Which seat survives is about the standing of the town, not the size the unit
             # happens to have reached: a county capital outranks anything, then a centre
@@ -1849,6 +1908,124 @@ def rebalance(data: Data, params: Params, result: Result) -> int:
     return moved_total
 
 
+def equalise(data: Data, params: Params, result: Result) -> int:
+    """Hand a commune to a near-equally-distant neighbouring unit that is carrying less.
+
+    Pantelimon (CT) is the case this exists for. It is 44.5 km from Municipiul Medgidia and
+    45.8 km from Oras Harsova, and `rebalance` asks only whether another seat is *strictly*
+    nearer, so 1.3 km kept it in Medgidia — 109,471 people over 1,752 km2 — instead of
+    Harsova, 23,290 over 828 km2. Nothing before this point ever compared the two from
+    Pantelimon: its own unit merged into Medgidia as a whole, judged from a seat 43 km closer
+    to Medgidia than to Harsova. A difference of 1.3 km is inside the error of any road
+    measurement and means nothing to a resident; what the two units already carry does not.
+
+    **Separate from `rebalance`, and after it, on purpose.** The two rules converge on
+    different quantities — rebalance lowers each commune's distance to its seat, this lowers
+    the spread between units — and interleaving them cycles: run together, 650 communes
+    ping-ponged on every sweep and the map became whatever the eighth sweep happened to
+    leave. Alone, this terminates: moving a commune of `c` from H to T changes the sum of
+    squared unit populations by 2c(T - H) + 2c^2, negative exactly when T + c < H, which is
+    the condition below. Every permitted move strictly lowers a quantity bounded below.
+
+    Every other rule still holds — the county line, the distance cap, contiguity, a capital's
+    ring, and never breaking a unit that was already above the target.
+    """
+    if params.r_tie_m <= 0 or not result.members:
+        return 0
+
+    def unit_population(unit: str) -> int:
+        return sum(data.population[m] for m in result.members[unit])
+
+    def unit_area(unit: str) -> float:
+        return sum(data.area_km2.get(m, 0.0) for m in result.members[unit])
+
+    moved_total = 0
+    for _sweep in range(_REBALANCE_SWEEPS):
+        reach_cache: dict[str, dict[str, float]] = {}
+
+        def reach_from(
+            seat: str, cache: dict[str, dict[str, float]] = reach_cache
+        ) -> dict[str, float]:
+            cached = cache.get(seat)
+            if cached is None:
+                cached = _county_road_distances(data, data.county[seat], [seat])
+                cache[seat] = cached
+            return cached
+
+        moved = 0
+        for siruta in sorted(data.population):
+            here = result.region_of[siruta]
+            if here == siruta:
+                continue
+            # A capital holds the ring around it; that is not up for rebalancing.
+            if is_capital_seat(data, here) and siruta in capital_ring(data, params, here):
+                continue
+            # And no centre gives up a commune on its own border. Balance is worth moving a
+            # commune that happens to sit in one unit rather than another; it is not worth
+            # taking a village off the town it adjoins. Without this, Oras Viseu de Sus lost
+            # Sacel — which it borders — to Oras Borsa, purely because Borsa was carrying
+            # less. The rule that a centre keeps its own neighbours outranks the spread.
+            if siruta in data.neighbours.get(here, ()):
+                continue
+            here_distance = reach_from(here).get(siruta, math.inf)
+            if not math.isfinite(here_distance):
+                continue
+
+            best: tuple | None = None
+            for neighbour in data.neighbours.get(siruta, ()):
+                there = result.region_of[neighbour]
+                if there == here or not _may_absorb(data, there, siruta):
+                    continue
+                # Never grow a capital past its ring by this route either.
+                if is_capital_seat(data, there) and siruta not in capital_ring(data, params, there):
+                    continue
+                there_distance = reach_from(there).get(siruta, math.inf)
+                if not math.isfinite(there_distance):
+                    continue
+                if there_distance > here_distance + params.r_tie_m:
+                    continue
+                if params.max_road_m > 0 and there_distance > params.max_road_m:
+                    continue
+                # The move must strictly close the gap. This is both the point of the pass
+                # and the reason it terminates.
+                if unit_population(there) + data.population[siruta] >= unit_population(here):
+                    continue
+                # Population first, since that is what the target is about, then area,
+                # because a unit that is already vast is the one that should stop growing.
+                key = (unit_population(there), unit_area(there), there_distance, there)
+                if best is None or key < best:
+                    best = key
+            if best is None:
+                continue
+            target_unit = best[-1]
+
+            members = result.members[here]
+            remaining = [m for m in members if m != siruta]
+            if not remaining or not _is_connected(data, remaining):
+                continue
+            if params.p_target > 0:
+                before = sum(data.population[m] for m in members)
+                after = before - data.population[siruta]
+                if before >= params.p_target > after:
+                    continue
+            if not _shape_allows(data, params, members, remaining):
+                continue
+            if not _shape_allows(
+                data, params, result.members[target_unit], result.members[target_unit] + [siruta]
+            ):
+                continue
+
+            result.members[here] = remaining
+            result.members[target_unit].append(siruta)
+            result.region_of[siruta] = target_unit
+            moved += 1
+
+        moved_total += moved
+        if moved == 0:
+            break
+    return moved_total
+
+
 def _is_connected(data: Data, members: list[str]) -> bool:
     """Whether a set of communes forms one piece over the road-connected graph."""
     inside = set(members)
@@ -2000,6 +2177,19 @@ def run(data: Data, params: Params) -> tuple[Result, dict]:
     # would have dropped Pogoanele below the target. Giving Pogoanele slack made the
     # misplacement live, and this is what corrects it.
     result.rebalanced += rebalance(data, params, result)
+    # Last, and on its own: see `equalise` for why it cannot share a loop with `rebalance`.
+    # It has to run *after* rebalance and never before, because rebalance asks only whether a
+    # seat is strictly nearer and would hand Pantelimon straight back to Medgidia.
+    #
+    # Paired with re-seating rather than run once: moving communes can give a unit a more
+    # significant town than its seat, and moving the seat changes the distances this pass
+    # measured, which opens a few more moves. Two or three rounds settle it.
+    for _ in range(_EQUALISE_ROUNDS):
+        moved = equalise(data, params, result)
+        result.equalised += moved
+        if moved == 0:
+            break
+        reseat_units(data, params, result)
     return result, summarise(data, params, result)
 
 

@@ -60,7 +60,12 @@ export interface SeatDistanceResultMessage {
 
 export interface ExplainResultMessage {
   type: 'explain-result';
-  blockers: { seat: number; kind: 'no-county-neighbour' | 'capital-only' | 'cap'; metres: number }[];
+  blockers: {
+    seat: number;
+    kind: 'no-county-neighbour' | 'capital-only' | 'county-minimum' | 'cap';
+    metres: number;
+    units: number;
+  }[];
 }
 
 export interface ReadyMessage {
@@ -222,6 +227,7 @@ self.onmessage = async (event: MessageEvent<Incoming>) => {
           seat,
           kind: blocker.kind,
           metres: blocker.kind === 'cap' ? blocker.metres : 0,
+          units: blocker.kind === 'county-minimum' ? blocker.units : 0,
         });
       }
       self.postMessage({ type: 'explain-result', blockers } satisfies ExplainResultMessage);
