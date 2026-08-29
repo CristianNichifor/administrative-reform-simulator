@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import unicodedata
 
@@ -225,7 +226,11 @@ def main(argv: list[str] | None = None) -> int:
     # resolve.
     # Roads are drawn at national zoom, so ~11 m precision is ample and halves the file.
     def round_coords(node, places: int = 5):
-        if isinstance(node, list):
+        # Tuples as well as lists. Shapely's `__geo_interface__` hands back nested *tuples*,
+        # so a list-only walk returned the road geometry untouched — the rounding this
+        # comment promises was a no-op for the two largest files in the payload, which shipped
+        # at fifteen decimals, sub-nanometre precision for a layer that is only ever drawn.
+        if isinstance(node, (list, tuple)):
             return [round_coords(v, places) for v in node]
         if isinstance(node, float):
             return round(node, places)
@@ -565,6 +570,32 @@ def main(argv: list[str] | None = None) -> int:
         if p.suffix in {".bin", ".json", ".geojson"}
     }
     eager = sum(v for k, v in sizes.items() if k not in LAZY)
+    # Coordinate precision, checked rather than assumed. `round_coords` walked lists only
+    # while Shapely hands back tuples, so the two road files shipped at fifteen decimals and
+    # nothing noticed: the size check passed because it had never seen them any smaller.
+    # A no-op that claims to halve a file is only visible if something measures the claim.
+    worst_places = 0
+    worst_file = ""
+    for name in sorted(sizes):
+        if not name.endswith(".geojson"):
+            continue
+        text = (WEB_DATA_DIR / name).read_text(encoding="utf-8")
+        places = max(
+            (len(m.group(0).split(".")[1]) for m in re.finditer(r"-?\d+\.\d+", text)),
+            default=0,
+        )
+        if places > worst_places:
+            worst_places, worst_file = places, name
+    report.add(
+        Check(
+            "coordinate_precision",
+            worst_places <= 5,
+            f"deepest coordinate: {worst_places} decimals in {worst_file} "
+            f"(5 is about a metre, which is finer than any screen resolves)",
+            fatal=worst_places > 5,
+        )
+    )
+
     lazy = sum(v for k, v in sizes.items() if k in LAZY)
     report.add(
         Check(
