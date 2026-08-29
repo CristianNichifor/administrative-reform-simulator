@@ -1,0 +1,26 @@
+# Cache rules for Cloudflare Pages. Vite copies public/ to the site root, so this file
+# lands where Pages expects it. GitHub Pages ignores it, which is why it is safe to ship
+# to both.
+
+# Vite fingerprints these by content, so a changed file is a changed URL and the old one
+# can be kept forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The payload is *not* fingerprinted: uats.geojson keeps its name across a pipeline rerun.
+# Caching it immutably would serve last month's map to anyone who had visited before. Five
+# minutes of freshness with a day of stale-while-revalidate keeps repeat visits instant
+# while making a redeploy visible almost immediately.
+/data/*
+  Cache-Control: public, max-age=300, stale-while-revalidate=86400
+
+# The entry document decides which asset URLs the browser asks for, so it must never be
+# held: a cached index.html pointing at deleted hashed assets is a blank page.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

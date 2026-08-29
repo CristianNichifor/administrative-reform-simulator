@@ -1,0 +1,76 @@
+name: Deploy to Cloudflare Pages
+
+# Runs alongside the GitHub Pages deploy rather than replacing it, so the github.io URL
+# keeps working and this can be turned off by deleting a secret.
+#
+# Why both: GitHub Pages allows 100 GB of bandwidth a month, which is roughly 35,000 visits
+# once the road layer is switched on. Cloudflare Pages has no bandwidth limit on the free
+# tier and serves brotli, which takes the first load from 1.46 MB gzipped to 1.28 MB.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Skipped rather than failed when the secrets are absent. A fork should not show a red
+      # cross for not having a Cloudflare account.
+      - name: Check for credentials
+        id: creds
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cloudflare secrets not set; skipping. Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to enable."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.configured == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        if: steps.creds.outputs.configured == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Check
+        if: steps.creds.outputs.configured == 'true'
+        working-directory: web
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+
+      - name: Build
+        if: steps.creds.outputs.configured == 'true'
+        working-directory: web
+        # No VITE_BASE: Pages serves this from the domain root, unlike the GitHub project
+        # site at /<repo>/. vite.config.ts defaults base to '/' when the variable is unset.
+        run: npm run build
+
+      - name: Deploy
+        if: steps.creds.outputs.configured == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/dist --project-name=administrative-reform-simulator --branch=main
