@@ -1,5 +1,24 @@
 # Administrative Reform Simulator (Romania)
 
+## Current Location
+
+The maintained simulator is now in
+[romania-reforms/simulators/administrativ](https://github.com/CristianNichifor/romania-reforms/tree/main/simulators/administrativ),
+with the live application at
+[romania-reforms/administrativ](https://cristiannichifor.github.io/romania-reforms/administrativ/).
+Please make application changes and report current application issues in that repository.
+
+This repository retains the earlier source and documentation. Its
+[Pages workflow](.github/workflows/deploy.yml) publishes only the files in
+[`redirect/`](redirect/), not the historical simulator source. The old Pages URL redirects to the
+canonical application; JavaScript preserves both the query string and scenario hash.
+The no-JavaScript fallback opens the canonical home page without those parameters.
+
+The descriptions, counts and commands below document this retained version and are
+not a statement of the current application's features or test totals.
+
+## Historical Documentation
+
 An interactive map of Romania's 3,186 UATs (unități administrativ-teritoriale) that
 simulates administrative consolidation under a **deterministic gravitational accretion
 model**. Move the sliders — radii, population thresholds, seeds per county — and the map
