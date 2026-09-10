@@ -30,6 +30,13 @@ import type { Outgoing, ReadyMessage, ResultMessage } from './model/worker';
 
 const DATA_BASE = `${import.meta.env.BASE_URL}data/`;
 
+/**
+ * Same-origin bridge to the Digital Romania Atlas: every scenario result is
+ * written here so pages like the atlas (cristiannichifor.github.io) can
+ * recompute their L0/UAT figures live while the map is being adjusted.
+ */
+const LIVE_KEY = 'reforma-administrativa:scenario';
+
 const RADIUS_GRID = [5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000, 27500, 30000];
 
 interface SliderSpec {
@@ -803,6 +810,25 @@ async function boot(): Promise<void> {
     for (let i = 0; i < message.regionOf.length; i += 1) {
       const region = message.regionOf[i]!;
       if (message.tierOf[region] === -1) isOrphanRegion[region] = 1;
+    }
+
+    // Publish the outcome for same-origin consumers (e.g. the Digital Romania
+    // Atlas) so their figures follow this map live.
+    try {
+      localStorage.setItem(
+        LIVE_KEY,
+        JSON.stringify({
+          ts: Date.now(),
+          units: message.regions,
+          baseline: ready?.uatCount ?? 0,
+          savingsAdminRon: message.savingsAdminRon ?? null,
+          reduction: ready ? 100 * (1 - message.regions / ready.uatCount) : null,
+          url: location.href,
+        }),
+      );
+    } catch {
+      // Storage unavailable (private mode): consumers fall back to their
+      // bundled default scenario.
     }
 
     paint();
