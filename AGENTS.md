@@ -1,29 +1,19 @@
-# administrative-reform-simulator
+# administrative-reform-simulator: historical source and redirect
 
-Interactive simulator of administrative consolidation for Romania's 3,186 UATs. Deterministic, explainable, runs entirely in the browser. An analysis instrument for public debate.
+The maintained application lives in [romania-reforms/simulators/administrativ](https://github.com/CristianNichifor/romania-reforms/tree/dev/simulators/administrativ). Direct feature, engine and data work there. This repository retains historical source; ordinary maintenance here covers `redirect/`, links and historical documentation.
 
-## Commands
+## Verify
 
-| Task | Command |
-|---|---|
-| test | `python3 -m unittest discover -s tests` |
+Node 22 or later: `node --test tests/redirect.test.cjs`. No installation, credentials, browser download or live service is required. This executes the deployed redirect's script and checks both fallback destinations. `.github/workflows/redirect-check.yml` exposes the `verify` check.
 
-## How this repo is gated
+Preserve query strings and scenario hashes in the JavaScript redirect. The no-JavaScript fallback intentionally opens the canonical home page without them. The Pages workflow must continue to publish only `redirect/`; do not restore the historical app as a second maintained product.
 
-- `dev` is the default branch and where work lands. Pull requests are required, and **no status check is required yet**.
-- `main` is production. It is restricted: only an admin can advance it, so an agent can open a pull request against it but cannot merge one.
-- This repo ships GitHub Pages. That fires on a merge to `main`, which is the restricted branch — so an agent's work reaching `dev` deploys nothing.
+Historical source changes require an explicit historical-maintenance task and the existing language-specific CI checks. See their workflow commands rather than using unittest as a substitute for pytest.
 
-## Working rules
+## Contribution workflow
 
-- Branch from `dev` with an approved prefix: `feat/`, `fix/`, `chore/`, `docs/`,
-  `sec/`, `adr/`. Land back into `dev` through a pull request.
-- Conventional Commits. Imperative subject, lower case, no trailing full stop,
-  72 characters hard limit. The body explains *why*; the diff already shows what.
-- Never modify vendored third-party sources. Fix the environment instead.
-- Secrets come from 1Password at runtime via `op run` and `op://` references.
-  Never write a credential into a file, a commit, or a shell history line.
-- Verify before claiming completion. A merged pull request is not a deployment,
-  and a git tag is not a publication.
-
-Cross-repo policy lives in `cnw-platform-handbook/docs/engineering-operating-model.md`.
+- Work from the remote default branch in a separate checkout. With the maintainer's `wt` tool, run `git fetch origin` then `wt new chore/<task> origin/dev`; it creates `<repo>/.worktrees/chore/<task>`. Contributors without `wt` can use a separate clone and feature branch. Never modify another task's working tree.
+- Use Conventional Commits: imperative lower-case subject, at most 72 characters, no trailing full stop, one change per commit. Explain why in the body only when needed; link issues with `Refs: #N` or `Closes: #N`.
+- Open a PR against `dev` with the problem, resulting behavior, verification command/results and any limitations. Agents never merge PRs, push directly to protected branches, deploy, or publish releases.
+- A required check or administrator-only branch rule is not an agent permission boundary: administrator credentials can bypass rules. Keep publication credentials out of ordinary development.
+- Tasks need an observable acceptance criterion, affected area, constraints and a verification command. Use synthetic fixtures; do not include credentials or personal data in issues, logs or tests.
