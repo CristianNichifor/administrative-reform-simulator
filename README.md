@@ -5,7 +5,7 @@
 The maintained simulator is now in
 [romania-reforms/simulators/administrativ](https://github.com/CristianNichifor/romania-reforms/tree/main/simulators/administrativ),
 with the live application at
-[romania-reforms/administrativ](https://cristiannichifor.github.io/romania-reforms/administrativ/).
+[romania-reforms/administrative-reform](https://cristiannichifor.github.io/romania-reforms/administrative-reform/).
 Please make application changes and report current application issues in that repository.
 
 This repository retains the earlier source and documentation. Its
