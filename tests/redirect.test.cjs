@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const vm = require('node:vm');
 const html = readFileSync(join(__dirname, '../redirect/index.html'), 'utf8');
-const target = "https://cristiannichifor.github.io/romania-reforms/administrativ/";
+const target = "https://cristiannichifor.github.io/romania-reforms/administrative-reform/";
 
 test('redirect preserves query and scenario hash exactly', () => {
   const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)];

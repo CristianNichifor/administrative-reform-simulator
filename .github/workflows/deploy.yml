@@ -1,6 +1,6 @@
 name: Deploy the redirect
 
-# This simulator now lives in CristianNichifor/romania-reforms, on /romania-reforms/administrativ/.
+# This simulator now lives in CristianNichifor/romania-reforms, on /romania-reforms/administrative-reform/.
 # What this repository publishes is a one-page redirect that carries location.hash across, so
 # every scenario link already pasted somewhere still opens the scenario it was pasted for.
 #
@@ -32,7 +32,7 @@ jobs:
       # forwards to.
       - name: Check the destination is live
         run: |
-          url=https://cristiannichifor.github.io/romania-reforms/administrativ/
+          url=https://cristiannichifor.github.io/romania-reforms/administrative-reform/
           code=$(curl -s -o /dev/null -w '%{http_code}' -L "$url")
           echo "$url -> $code"
           [ "$code" = "200" ] || { echo "destination is not serving; refusing to publish the redirect"; exit 1; }
