@@ -23,3 +23,10 @@ test('canonical, noscript and visible fallback agree', () => {
   assert.ok(fallback[1].includes('0; url=' + target));
   assert.ok(html.includes('<a href="' + target + '"'));
 });
+
+test('README sends readers to the hub, not the old Pages URL', () => {
+  const readme = readFileSync(join(__dirname, '../README.md'), 'utf8');
+  assert.ok(readme.includes('(' + target + ')'), 'README links the live application on the hub');
+  assert.ok(readme.includes('(https://projects.cristian-nichifor.com/)'), 'README links the hub');
+  assert.doesNotMatch(readme, /Live:\s*<?https:\/\/cristiannichifor\.github\.io/, 'old Pages URL is not presented as live');
+});
