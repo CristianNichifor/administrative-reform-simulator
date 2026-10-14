@@ -1,8 +1,8 @@
 # --- Data ---
 # Raw downloads and build artefacts are reproducible from the pipeline.
 # Only web/public/data/ is committed (see README size budget).
-data/raw/
-data/processed/
+data/raw
+data/processed
 
 # --- Python ---
 __pycache__/
